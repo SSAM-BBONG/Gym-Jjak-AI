@@ -2,3 +2,6 @@
 __pycache__/
 *.pyc
 .env
+
+# 개인 챗봇 구현 계획 문서
+app/chatbot/docs/
