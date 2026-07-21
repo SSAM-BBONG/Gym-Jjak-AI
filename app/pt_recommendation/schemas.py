@@ -3,30 +3,37 @@ from enum import Enum
 from pydantic import BaseModel, Field, model_validator
 
 
-class PartType(str, Enum):
-    """Gym-Jjak(Spring) PtCourse.PartType과 동일한 값을 유지한다."""
-
-    CHEST = "CHEST"
-    BACK = "BACK"
-    SHOULDER = "SHOULDER"
-    ARM = "ARM"
-    ABS = "ABS"
-    CORE = "CORE"
-    LEG = "LEG"
-    GLUTE = "GLUTE"
-    FULL_BODY = "FULL_BODY"
-
-
 class PainOnset(str, Enum):
     ACUTE = "ACUTE"
     SUBACUTE = "SUBACUTE"
     CHRONIC = "CHRONIC"
 
 
+class PtCourseCandidate(BaseModel):
+    """1차 필터링(부위·거리)을 통과한 후보 PT코스 한 개.
+    Spring이 온보딩 기준주소+2차온보딩 조건으로 이미 걸러서 요청에 번들로 실어 보낸다
+    (diet/trainer_report와 동일하게, FastAPI는 Spring에 되물어보지 않는다).
+    bio는 PtCourse.description(코스 설명)이다."""
+
+    course_id: int
+    course_name: str
+    trainer_id: int
+    trainer_name: str
+    bio: str
+
+
+class UserProfile(BaseModel):
+    """온보딩+PT이력을 종합한 회원 프로필. Spring이 조회해서 채워 보낸다."""
+
+    exercise_goal: str
+    exercise_period: str
+    exercise_frequency: str
+    pt_history_summary: str
+
+
 class PtRecommendationRequest(BaseModel):
-    user_id: int
-    target_parts: list[PartType] = Field(min_length=1)
-    distance_level: int = Field(ge=1, le=5)
+    candidates: list[PtCourseCandidate] = Field(min_length=1)
+    profile: UserProfile
     has_pain: bool
     pain_area: str | None = None
     pain_onset: PainOnset | None = None
@@ -50,24 +57,3 @@ class RecommendedPtCourse(BaseModel):
 
 class PtRecommendationResponse(BaseModel):
     recommendations: list[RecommendedPtCourse]
-
-
-class PtCourseCandidate(BaseModel):
-    """1차 필터링을 통과한 후보 PT코스 한 개. user_data_client가 Java에서 조회해서 채운다.
-    부위(PartType)는 트레이너가 아니라 PtCourse에 달린 값이라, 필터링/추천 단위를
-    트레이너가 아닌 PT코스로 잡는다 — 한 트레이너가 여러 코스(부위)를 가질 수 있음."""
-
-    course_id: int
-    course_name: str
-    trainer_id: int
-    trainer_name: str
-    bio: str
-
-
-class UserProfile(BaseModel):
-    """온보딩+PT이력을 종합한, 2차 AI 프롬프트에 넣을 회원 프로필. user_data_client가 채운다."""
-
-    exercise_goal: str
-    exercise_period: str
-    exercise_frequency: str
-    pt_history_summary: str
