@@ -1,6 +1,10 @@
-from typing import Callable, Protocol
+from typing import Callable, Protocol, TypeVar
+
+from pydantic import BaseModel
 
 from app.llm.models import LLMMessage, LLMResponse
+
+StructuredOutput = TypeVar("StructuredOutput", bound=BaseModel)
 
 
 class LLMPort(Protocol):
@@ -12,3 +16,12 @@ class LLMPort(Protocol):
         messages: list[LLMMessage],
         tools: list[Callable] | None = None,
     ) -> LLMResponse: ...
+
+    async def generate_structured_image(
+        self,
+        *,
+        prompt: str,
+        image_bytes: bytes,
+        mime_type: str,
+        output_schema: type[StructuredOutput],
+    ) -> StructuredOutput: ...
