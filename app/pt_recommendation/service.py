@@ -1,6 +1,6 @@
 from app.common import user_data_client
 from app.llm.port import LLMPort
-from app.pt_recommendation.chain import recommend_trainers
+from app.pt_recommendation.chain import recommend_pt_courses
 from app.pt_recommendation.errors import no_candidates_found
 from app.pt_recommendation.schemas import (
     PtRecommendationRequest,
@@ -15,7 +15,7 @@ class PtRecommendationService:
         self._llm = llm
 
     async def recommend(self, request: PtRecommendationRequest) -> PtRecommendationResponse:
-        candidates = await user_data_client.search_trainers(
+        candidates = await user_data_client.search_pt_courses(
             user_id=request.user_id,
             target_parts=request.target_parts,
             distance_level=request.distance_level,
@@ -40,7 +40,7 @@ class PtRecommendationService:
             else []
         )
 
-        recommendations = await recommend_trainers(
+        recommendations = await recommend_pt_courses(
             llm=self._llm,
             candidates=candidates,
             profile=profile,

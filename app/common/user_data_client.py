@@ -3,22 +3,26 @@
 단계에서 진행한다. 실제 연동 시 httpx.AsyncClient로 settings.spring_base_url +
 X-Internal-Api-Key 헤더를 사용해 호출하도록 교체할 것."""
 
-from app.pt_recommendation.schemas import PartType, TrainerCandidate
+from app.pt_recommendation.schemas import PartType, PtCourseCandidate
 
 
-async def search_trainers(
+async def search_pt_courses(
     user_id: int,
     target_parts: list[PartType],
     distance_level: int,
-) -> list[TrainerCandidate]:
-    """TODO: 실제 연동 시 부위·거리 조건 기반 트레이너 검색 API 호출로 교체."""
+) -> list[PtCourseCandidate]:
+    """TODO: 실제 연동 시 부위·거리 조건 기반 PT코스 검색 API 호출로 교체."""
     return [
-        TrainerCandidate(
+        PtCourseCandidate(
+            course_id=101,
+            course_name="무릎 재활 집중 코스",
             trainer_id=1,
             trainer_name="김트레이너",
             bio="10년차 재활 전문 트레이너입니다. 무릎·허리 통증 회원 지도 경험이 많습니다.",
         ),
-        TrainerCandidate(
+        PtCourseCandidate(
+            course_id=202,
+            course_name="근비대 8주 코스",
             trainer_id=2,
             trainer_name="이트레이너",
             bio="바디빌딩 대회 입상 경력의 근비대 전문 트레이너입니다.",

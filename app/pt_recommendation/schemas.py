@@ -40,19 +40,25 @@ class PtRecommendationRequest(BaseModel):
         return self
 
 
-class RecommendedTrainer(BaseModel):
+class RecommendedPtCourse(BaseModel):
+    course_id: int
+    course_name: str
     trainer_id: int
     trainer_name: str
     reason: str = Field(min_length=1, max_length=1000)
 
 
 class PtRecommendationResponse(BaseModel):
-    recommendations: list[RecommendedTrainer]
+    recommendations: list[RecommendedPtCourse]
 
 
-class TrainerCandidate(BaseModel):
-    """1차 필터링을 통과한 후보 트레이너 한 명. user_data_client가 Java에서 조회해서 채운다."""
+class PtCourseCandidate(BaseModel):
+    """1차 필터링을 통과한 후보 PT코스 한 개. user_data_client가 Java에서 조회해서 채운다.
+    부위(PartType)는 트레이너가 아니라 PtCourse에 달린 값이라, 필터링/추천 단위를
+    트레이너가 아닌 PT코스로 잡는다 — 한 트레이너가 여러 코스(부위)를 가질 수 있음."""
 
+    course_id: int
+    course_name: str
     trainer_id: int
     trainer_name: str
     bio: str

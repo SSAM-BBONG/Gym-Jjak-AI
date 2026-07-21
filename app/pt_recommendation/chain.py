@@ -9,8 +9,8 @@ from app.pt_recommendation.errors import invalid_recommendation_result
 from app.pt_recommendation.prompts import PT_RECOMMENDATION_SYSTEM_PROMPT
 from app.pt_recommendation.schemas import (
     PainOnset,
-    RecommendedTrainer,
-    TrainerCandidate,
+    PtCourseCandidate,
+    RecommendedPtCourse,
     UserProfile,
 )
 
@@ -21,9 +21,10 @@ _ONSET_LABELS = {
 }
 
 
-def _format_candidates(candidates: list[TrainerCandidate]) -> str:
+def _format_candidates(candidates: list[PtCourseCandidate]) -> str:
     return "\n".join(
-        f"- trainer_id={c.trainer_id}, 이름={c.trainer_name}, 소개: {c.bio}"
+        f"- course_id={c.course_id}, 코스명={c.course_name}, "
+        f"trainer_id={c.trainer_id}, 트레이너={c.trainer_name}, 트레이너 소개: {c.bio}"
         for c in candidates
     )
 
@@ -53,38 +54,40 @@ def _format_reference_docs(training_chunks: list[str], injury_chunks: list[str])
     return "\n\n".join(sections) if sections else "(관련 참고 자료 없음)"
 
 
-def _parse_response(text: str, candidates: list[TrainerCandidate]) -> list[RecommendedTrainer]:
+def _parse_response(
+    text: str, candidates: list[PtCourseCandidate]
+) -> list[RecommendedPtCourse]:
     """generate_structured가 아직 공용 포트에 없어 프롬프트로 JSON 출력을 강제하고 여기서
-    직접 파싱한다. candidates에 없는 trainer_id는 LLM이 지어낸 것으로 보고 걸러낸다."""
+    직접 파싱한다. candidates에 없는 course_id는 LLM이 지어낸 것으로 보고 걸러낸다."""
 
-    valid_ids = {c.trainer_id for c in candidates}
+    valid_ids = {c.course_id for c in candidates}
     try:
         raw = json.loads(text)
-        recommendations = [RecommendedTrainer.model_validate(item) for item in raw]
+        recommendations = [RecommendedPtCourse.model_validate(item) for item in raw]
     except (json.JSONDecodeError, ValidationError, TypeError) as exc:
         raise invalid_recommendation_result() from exc
 
-    recommendations = [r for r in recommendations if r.trainer_id in valid_ids]
+    recommendations = [r for r in recommendations if r.course_id in valid_ids]
     if not recommendations:
         raise invalid_recommendation_result()
     return recommendations
 
 
-async def recommend_trainers(
+async def recommend_pt_courses(
     llm: LLMPort,
-    candidates: list[TrainerCandidate],
+    candidates: list[PtCourseCandidate],
     profile: UserProfile,
     has_pain: bool,
     pain_area: str | None,
     pain_onset: PainOnset | None,
     training_chunks: list[str],
     injury_chunks: list[str],
-) -> list[RecommendedTrainer]:
-    """후보 트레이너 + 회원 프로필 + RAG 참고자료를 종합해서 LLM이 최적 후보를 선정하고
+) -> list[RecommendedPtCourse]:
+    """후보 PT코스 + 회원 프로필 + RAG 참고자료를 종합해서 LLM이 최적 후보를 선정하고
     추천 이유를 생성한다."""
 
     user_content = (
-        f"[후보 트레이너 목록]\n{_format_candidates(candidates)}\n\n"
+        f"[후보 PT코스 목록]\n{_format_candidates(candidates)}\n\n"
         f"[회원 프로필]\n{_format_profile(profile)}\n\n"
         f"[통증 정보]\n{_format_pain(has_pain, pain_area, pain_onset)}\n\n"
         f"[참고 자료]\n{_format_reference_docs(training_chunks, injury_chunks)}"
