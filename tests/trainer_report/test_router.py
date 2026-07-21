@@ -11,8 +11,13 @@ _PAYLOAD = {
     "trainer_id": 1,
     "market_trends": {
         "popular_body_parts": [{"body_part": "하체", "percentage": 35.2}],
-        "price_distribution": [{"price_range": "15~20만원", "percentage": 40.0}],
-        "average_session_count": 9.5,
+        "price_distribution": [
+            {"price_range": "15~20만원", "min_price": 150000, "max_price": 200000, "percentage": 40.0}
+        ],
+        "price_per_session_distribution": [
+            {"price_range": "2~2.5만원", "min_price": 20000, "max_price": 25000, "percentage": 40.0}
+        ],
+        "session_count_distribution": [{"session_count": 8, "percentage": 40.0}],
         "location_distribution": [{"region": "강남구", "percentage": 25.0}],
     },
     "my_pt_courses": [
