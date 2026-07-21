@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from app.core.exceptions import AppError, register_exception_handlers
 from app.core.logging import REQUEST_ID_HEADER, get_request_id, set_request_id, setup_logging
 from app.diet.router import router as diet_router
+from app.pt_recommendation.router import router as pt_recommendation_router
 from app.trainer_report.router import router as trainer_report_router
 
 
@@ -86,4 +87,5 @@ def read_root():
 
 
 app.include_router(diet_router)
+app.include_router(pt_recommendation_router)
 app.include_router(trainer_report_router)

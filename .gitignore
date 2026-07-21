@@ -7,3 +7,6 @@ pytest-cache-files-*/
 
 # 개인 챗봇 구현 계획 문서
 app/chatbot/docs/
+
+# 생성된 로컬 벡터 인덱스 (원본은 data/documents/, 여기서 재생성 가능)
+data/indexes/
