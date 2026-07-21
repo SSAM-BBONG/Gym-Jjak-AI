@@ -2,8 +2,13 @@
 __pycache__/
 *.pyc
 .env
+.env.*
+!.env.example
 .pytest_cache/
 pytest-cache-files-*/
+data/indexes/
+.coverage
+htmlcov/
 
 # 개인 챗봇 구현 계획 문서
 app/chatbot/docs/
