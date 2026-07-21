@@ -34,10 +34,8 @@ async def generate_trainer_report(
     Function Calling과 RAG는 쓰지 않는다 — 필요한 데이터는 이미 인자로 확정적으로 들어온다."""
 
     user_content = (
-        f"[시장 전체 동향]\n{_format_market_trends(market_trends)}\n\n"
-        f"[내가 운영 중인 PT 상품]\n{_format_my_courses(my_pt_courses)}\n\n"
-        "위 데이터를 바탕으로, 시장 동향을 요약하고 내 상품 구성에 대한 개선 조언을 포함한 "
-        "리포트를 작성해줘."
+        f"[이번 달 시장 동향]\n{_format_market_trends(market_trends)}\n\n"
+        f"[운영 중인 PT 상품]\n{_format_my_courses(my_pt_courses)}"
     )
 
     messages = [
