@@ -2,6 +2,8 @@
 __pycache__/
 *.pyc
 .env
+.pytest_cache/
+pytest-cache-files-*/
 
 # 개인 챗봇 구현 계획 문서
 app/chatbot/docs/
