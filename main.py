@@ -5,15 +5,18 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.core.exceptions import AppError
+from app.core.exceptions import AppError, register_exception_handlers
 from app.core.logging import REQUEST_ID_HEADER, get_request_id, set_request_id, setup_logging
 from app.diet.router import router as diet_router
+from app.trainer_report.router import router as trainer_report_router
 
 
 setup_logging()
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Gym-Jjak AI Server", version="1.0.0")
+
+register_exception_handlers(app)
 
 
 @app.middleware("http")
@@ -77,20 +80,10 @@ def health():
     return {"status": "ok"}
 
 
-app.include_router(diet_router)
-
-from fastapi import FastAPI
-
-from app.core.exceptions import register_exception_handlers
-from app.trainer_report.router import router as trainer_report_router
-
-app = FastAPI()
-
-register_exception_handlers(app)
-
-app.include_router(trainer_report_router)
-
-
 @app.get("/")
 def read_root():
     return {"message": "Hello, GymJjak AI!"}
+
+
+app.include_router(diet_router)
+app.include_router(trainer_report_router)
