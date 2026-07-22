@@ -1,6 +1,6 @@
 import base64
 import asyncio
-from typing import Callable
+from typing import AsyncIterator, Callable
 
 import httpx
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -10,7 +10,7 @@ from pydantic import BaseModel, ValidationError
 
 from app.core.settings import settings
 from app.llm.errors import LLMInvalidResponseError, LLMNetworkError, LLMRateLimitedError
-from app.llm.models import LLMMessage, LLMResponse, ToolCall
+from app.llm.models import LLMMessage, LLMResponse, LLMStreamChunk, ToolCall
 from app.llm.port import StructuredOutput
 
 _ROLE_TO_MESSAGE_CLASS = {
@@ -132,6 +132,53 @@ class GeminiAdapter:
             raise LLMInvalidResponseError("Gemini 응답에 text와 tool_calls가 모두 없습니다.")
 
         return LLMResponse(text=text, tool_calls=tool_calls)
+
+    async def stream(
+        self,
+        messages: list[LLMMessage],
+        tools: list[Callable] | None = None,
+    ) -> AsyncIterator[LLMStreamChunk]:
+        """generate()와 같은 호출을 토큰 단위로 흘려보낸다. tool_calls는 일반적으로
+        마지막 청크에만 전체가 채워져 오므로, 각 청크의 tool_calls를 그때그때 최신값으로
+        덮어써서 최종 청크의 값을 쓴다(langchain-google-genai 스트리밍 응답 구조 기준)."""
+        base_model = self._get_model()
+        model = base_model.bind_tools(tools) if tools else base_model
+        langchain_messages = [_to_langchain_message(m) for m in messages]
+
+        text_parts: list[str] = []
+        tool_calls_raw: list[dict] = []
+        additional_kwargs: dict = {}
+        try:
+            async for chunk in model.astream(langchain_messages):
+                piece = _extract_text(chunk.content)
+                if piece:
+                    text_parts.append(piece)
+                    yield LLMStreamChunk(delta=piece)
+                if chunk.tool_calls:
+                    tool_calls_raw = chunk.tool_calls
+                if chunk.additional_kwargs:
+                    additional_kwargs.update(chunk.additional_kwargs)
+        except (httpx.ConnectError, httpx.TimeoutException) as e:
+            raise LLMNetworkError(str(e)) from e
+        except ChatGoogleGenerativeAIError as e:
+            _raise_for_gemini_error(e)
+
+        signature_map = additional_kwargs.get(_THOUGHT_SIGNATURE_KEY, {})
+        tool_calls = [
+            ToolCall(
+                name=tc["name"],
+                args=tc["args"],
+                id=tc["id"],
+                thought_signature=signature_map.get(tc["id"]),
+            )
+            for tc in tool_calls_raw
+        ]
+        text = "".join(text_parts) or None
+
+        if text is None and not tool_calls:
+            raise LLMInvalidResponseError("Gemini 스트리밍 응답에 text와 tool_calls가 모두 없습니다.")
+
+        yield LLMStreamChunk(response=LLMResponse(text=text, tool_calls=tool_calls))
 
     async def generate_structured_image(
         self,
