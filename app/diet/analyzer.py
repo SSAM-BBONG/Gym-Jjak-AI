@@ -8,13 +8,11 @@ import filetype
 import httpx
 from pydantic import ValidationError
 
-from app.core.exceptions import AppError
+from app.core.exceptions import AppError, llm_error, llm_timeout
 from app.diet.errors import (
     image_download_failed,
     image_too_large,
     invalid_analysis_result,
-    llm_error,
-    llm_timeout,
     unsafe_image_url,
     unsupported_image_type,
 )
@@ -53,7 +51,7 @@ class MealImageAnalyzer:
         except AppError:
             raise
         except Exception as exc:
-            raise llm_error() from exc
+            raise llm_error("AI 식단 분석에 실패했습니다.") from exc
 
     async def _download_image(self, image_url: str) -> DownloadedImage:
         await self._validate_public_https_url(image_url)

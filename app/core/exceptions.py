@@ -31,6 +31,14 @@ def internal_auth_failed() -> AppError:
     return AppError(401, "INTERNAL_AUTH_FAILED", "AI 서버 인증에 실패했습니다.")
 
 
+def llm_timeout() -> AppError:
+    return AppError(504, "LLM_TIMEOUT", "AI 분석 응답 시간이 초과되었습니다.", True)
+
+
+def llm_error(message: str) -> AppError:
+    return AppError(502, "LLM_NETWORK_ERROR", message, True)
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     """ERROR_HANDLING.md 공통 응답 포맷: {code, message, request_id, retryable}
     Gemini 세부 오류는 로그로만 남기고, 사용자(Java)에게는 단순화된 메시지만 반환한다."""
