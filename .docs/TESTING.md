@@ -1,11 +1,48 @@
 # 🧪 Gym-Jjak AI Server Testing and Performance
 
 - 작성일: 2026-07-19
-- 최종 수정일: 2026-07-19
-- 상태: 테스트 및 성능 측정 정책 확정
+- 최종 수정일: 2026-07-22
+- 상태: 테스트 및 성능 측정 정책 확정, Task 1~14 구현 완료
 - 문서 규칙: Markdown 파일명은 대문자로 작성하고, 주요 제목에는 의미에 맞는 이모지를 사용한다.
 
 > 이 문서는 Gym-Jjak AI 서버의 테스트 계층, AI 품질 평가, 성능 측정, 부하 테스트 정책을 정의한다. 정책을 변경할 때는 관련 내용과 `최종 수정일`을 함께 갱신한다.
+
+## 🔧 실제 구현과의 차이 (2026-07-22 갱신)
+
+### 실제 테스트 디렉터리 구조
+
+```text
+tests/
+├── unit/                  # 단위 테스트 (core, llm, common, rag, routine, chatbot)
+├── graph/                 # LangGraph 시나리오 테스트 (conftest.py에 공용 Fake 조립기)
+├── integration/           # FastAPI 통합 테스트 (chatbot, routine, core)
+│   └── chatbot/
+│       ├── test_chat_api.py
+│       ├── test_safety_regression.py
+│       └── test_privacy_regression.py
+├── rag_eval/               # RAG 품질 게이트 (실제 Gemini 호출, --run-rag-eval 필요)
+├── performance/            # Fake 기반 처리시간 측정
+├── smoke/                  # 실제 Gemini 호출 (--run-smoke 필요)
+└── fakes/, fixtures/       # 공용 Test Double과 샘플 데이터
+```
+
+### 실제 Gemini 호출 게이트 (계획서 예시 대비)
+
+계획서 예시는 `RUN_GEMINI_SMOKE` 환경변수로 게이팅하는 코드를 보여줬지만, 실제로는 trainer_report가 먼저 도입한 **`pytest --run-smoke` CLI 플래그** 방식을 그대로 따라 통일했다(루트 `conftest.py`). RAG 품질 평가도 동일한 패턴으로 **`--run-rag-eval` CLI 플래그**를 추가해 게이팅한다(임베딩 API도 비용이 발생하므로 smoke와 동일하게 취급). 두 플래그 모두 기본 `pytest` 실행에는 포함되지 않는다.
+
+```bash
+pytest                                        # 기본: smoke/rag_eval 전부 스킵, Gemini 호출 0회
+pytest --run-smoke -m smoke                   # 실제 Gemini 채팅 호출 확인
+pytest --run-rag-eval -m rag_eval tests/rag_eval  # 실제 Gemini Embedding 품질 평가
+```
+
+### RAG 평가 규모
+
+설계안은 최소 30건을 제안했지만, 실제로는 **20건**으로 시작했다(계획서 Task 13이 명시한 "최소 20개"). 문서(`data/documents/`)가 늘어나면 평가셋도 함께 늘리는 것을 권장한다.
+
+### 커버리지 결과 (2026-07-22 기준)
+
+전체 88~90%. `app/diet`, `app/llm/gemini_adapter.py`의 낮은 커버리지는 각각 diet 담당자 영역과 Fake로 우회 가능한 실제 LangChain 호출부라 챗봇 작업 범위에서 추가하지 않았다.
 
 # 🎯 테스트 목표
 
@@ -343,3 +380,4 @@ flowchart LR
 | 날짜 | 변경 내용 |
 | --- | --- |
 | 2026-07-19 | 테스트 계층, RAG 평가, 성능 측정 및 부하 테스트 정책 작성 |
+| 2026-07-22 | 실제 테스트 디렉터리 구조, `--run-smoke`/`--run-rag-eval` 게이팅, 평가셋 규모, 커버리지 결과 반영 |

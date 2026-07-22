@@ -1,11 +1,31 @@
 # ⚠️ Gym-Jjak AI Server Error Handling
 
 - 작성일: 2026-07-19
-- 최종 수정일: 2026-07-19
-- 상태: 오류 처리 정책 확정
+- 최종 수정일: 2026-07-22
+- 상태: 오류 처리 정책 확정, 챗봇/루틴 도메인 구현 완료
 - 문서 규칙: Markdown 파일명은 대문자로 작성하고, 주요 제목에는 의미에 맞는 이모지를 사용한다.
 
 > 이 문서는 Gym-Jjak AI 서버의 오류 분류, 사용자 안내, 재시도, Timeout, 로그 정책을 정의한다. 정책을 변경할 때는 관련 내용과 `최종 수정일`을 함께 갱신한다.
+
+## 🔧 실제 구현과의 차이 (2026-07-22 갱신)
+
+아래 "🧭 오류 분류" 표의 코드는 최초 설계안이며, 실제로는 `AppError` 하위 클래스로 다음 코드를 구현했다(공통 응답 형식 `{code, message, request_id, retryable}`은 설계와 동일).
+
+| 실제 오류 코드 | 상황 | HTTP | 위치 |
+| --- | --- | --- | --- |
+| `INTERNAL_AUTH_FAILED` | X-Internal-Api-Key 누락/불일치 | 401 | `app/core/exceptions.py`, `app/common/auth.py` |
+| `REQUEST_VALIDATION_ERROR` | Pydantic 요청 검증 실패 | 422 | `app/core/error_handlers.py` |
+| `ROLE_NOT_ALLOWED` | role이 기대한 값(USER/TRAINER)이 아님 | 403 | `app/routine/exceptions.py` (챗봇도 재사용) |
+| `CHATBOT_SUBSCRIPTION_REQUIRED` | 활성 구독 없이 챗봇/루틴 요청 | 403 | `app/routine/exceptions.py` |
+| `TRAINER_SUBJECT_ACCESS_DENIED` | 트레이너-회원 담당 관계 없음 | 403 | `app/common/exceptions.py` |
+| `LLM_NETWORK_ERROR` | Gemini 연결/Timeout | 503 | `app/llm/errors.py` |
+| `LLM_RATE_LIMITED` | Gemini 429 | 503 | `app/llm/errors.py` |
+| `LLM_INVALID_RESPONSE` | 구조화 출력 검증 실패 | 502 | `app/llm/errors.py` |
+| `LLM_CALL_LIMIT_EXCEEDED` | 요청당 LLM 호출 6회 초과 | 503 | `app/chatbot/exceptions.py` |
+| `CHATBOT_REQUEST_TIMEOUT` | 요청 처리 60초 초과 | 504 | `app/chatbot/exceptions.py` |
+| `INTERNAL_SERVER_ERROR` | 분류되지 않은 예외 | 500 | `app/core/error_handlers.py` |
+
+설계안의 `ACCESS_DENIED`, `SPRING_CLIENT_ERROR`, `SPRING_UNAVAILABLE`, `PERSONAL_DATA_PARTIAL/UNAVAILABLE`, `RAG_RESULT_NOT_FOUND`, `RAG_UNAVAILABLE`, `ROUTINE_SAFETY_INFO_REQUIRED`는 **아직 구현되지 않았다** — Spring 연동(Deferred Integration Plan)이 붙기 전까지는 `InMemoryUserDataClient`가 항상 빈 값을 반환하므로 "일부 실패"라는 상태 자체가 발생하지 않는다. `PERSONAL_DATA_PARTIAL`은 `RoutineResult.status="LIMITED"` + `missing_data` 필드로, `ROUTINE_SAFETY_INFO_REQUIRED`는 `RoutineResult.status="BLOCKED"` + `cautions` 필드로 각각 200 응답 안에서 표현하는 방식으로 대체 구현했다.
 
 # 🎯 오류 처리 목표
 
@@ -278,3 +298,4 @@ Gemini 실패
 | 날짜 | 변경 내용 |
 | --- | --- |
 | 2026-07-19 | Gemini 무재시도 원칙을 포함한 초기 오류 처리 정책 작성 |
+| 2026-07-22 | 실제 구현된 오류 코드 표 반영, 미구현 코드(Spring 연동 의존)와 대체 구현 방식 명시 |

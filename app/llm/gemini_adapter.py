@@ -24,6 +24,15 @@ def _to_langchain_message(message: LLMMessage):
     """LangChain은 이 파일 안에서만 다룬다 — 이 함수 밖으로 LangChain 타입이 나가지 않는다."""
     if message.role == "tool":
         return ToolMessage(content=message.content, tool_call_id=message.tool_call_id or "")
+    if message.role == "assistant" and message.tool_calls:
+        # 이전 턴에서 모델이 요청한 도구 호출을 그대로 재현해야 LangChain이
+        # 뒤따르는 ToolMessage들과 올바르게 짝지어준다.
+        return AIMessage(
+            content=message.content,
+            tool_calls=[
+                {"name": tc.name, "args": tc.args, "id": tc.id} for tc in message.tool_calls
+            ],
+        )
     message_cls = _ROLE_TO_MESSAGE_CLASS[message.role]
     return message_cls(content=message.content)
 

@@ -41,11 +41,13 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(AppError)
     async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:
+        """도메인에서 던진 AppError(및 하위 클래스)를 공통 오류 응답으로 변환한다."""
         logger.warning("handled_error code=%s", exc.code)
         return _error_response(exc.status_code, exc.code, exc.message, exc.retryable)
 
     @app.exception_handler(RequestValidationError)
     async def handle_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+        """Pydantic 요청 검증 실패를 422 공통 오류 응답으로 변환한다."""
         logger.warning(
             "request_validation_error count=%d errors=%s",
             len(exc.errors()),
@@ -55,6 +57,7 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(LLMError)
     async def handle_llm_error(request: Request, exc: LLMError) -> JSONResponse:
+        """Gemini 호출 실패(LLMError 계열)를 오류 코드별 상태코드로 변환한다."""
         logger.warning("llm_error code=%s", exc.code)
         status_code = _LLM_ERROR_STATUS.get(exc.code, 500)
         return _error_response(
@@ -66,5 +69,6 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
+        """분류되지 않은 예외(버그)를 500 공통 오류 응답으로 변환하고 스택트레이스는 로그에만 남긴다."""
         logger.exception("unexpected_error")
         return _error_response(500, "INTERNAL_SERVER_ERROR", "서버 내부 오류가 발생했습니다.", False)

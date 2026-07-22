@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 
 
 class RetrieverPort(Protocol):
+    """카테고리 필터 + 키워드 힌트로 관련 문서를 검색하는 계약."""
+
     async def search(
         self,
         query: str,
@@ -23,6 +25,8 @@ class RetrieverPort(Protocol):
 
 
 class ChromaRetriever:
+    """RetrieverPort의 Chroma 구현체."""
+
     def __init__(self, collection: Collection, embeddings: EmbeddingPort) -> None:
         self._collection = collection
         self._embeddings = embeddings
@@ -35,6 +39,8 @@ class ChromaRetriever:
         keywords: list[str] | None = None,
         top_k: int = 3,
     ) -> list[RetrievedDocument]:
+        """질의를 임베딩해 category로 필터링한 뒤 top_k개를 반환한다.
+        source metadata가 없는 chunk는 결과에서 제외하고 경고 로그만 남긴다."""
         # 키워드는 사용자에게 노출되지 않는 검색 힌트로만 쿼리에 결합한다.
         search_text = " ".join([query, *(keywords or [])])
         query_vector = await self._embeddings.embed_query(search_text)

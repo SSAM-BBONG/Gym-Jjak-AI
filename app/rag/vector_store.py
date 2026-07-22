@@ -18,12 +18,14 @@ def create_chroma_client(
     persistent_factory: Callable[..., ClientAPI] = chromadb.PersistentClient,
     http_factory: Callable[..., ClientAPI] = chromadb.HttpClient,
 ) -> ClientAPI:
+    """chroma_mode에 따라 HttpClient(production) 또는 PersistentClient(local/test)를 만든다."""
     if settings.chroma_mode == "http":
         return http_factory(host=settings.chroma_host, port=settings.chroma_port)
     return persistent_factory(path=str(settings.chroma_persist_directory))
 
 
 def get_or_create_collection(client: ClientAPI) -> Collection:
+    """고정된 컬렉션 이름과 cosine 거리 함수로 컬렉션을 가져오거나 만든다."""
     return client.get_or_create_collection(
         name=COLLECTION_NAME,
         metadata={"hnsw:space": "cosine"},

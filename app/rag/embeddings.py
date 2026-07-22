@@ -16,6 +16,7 @@ class GeminiEmbeddings:
         self._model: GoogleGenerativeAIEmbeddings | None = None
 
     def _get_model(self) -> GoogleGenerativeAIEmbeddings:
+        """모델 인스턴스를 처음 호출 시 1번만 생성해 캐싱한다."""
         if self._model is not None:
             return self._model
         if not settings.gemini_api_key:
@@ -28,7 +29,9 @@ class GeminiEmbeddings:
         return self._model
 
     async def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        """문서용 task_type(RETRIEVAL_DOCUMENT)으로 임베딩한다."""
         return await self._get_model().aembed_documents(texts, task_type="RETRIEVAL_DOCUMENT")
 
     async def embed_query(self, text: str) -> list[float]:
+        """질의용 task_type(RETRIEVAL_QUERY)으로 임베딩한다."""
         return await self._get_model().aembed_query(text, task_type="RETRIEVAL_QUERY")

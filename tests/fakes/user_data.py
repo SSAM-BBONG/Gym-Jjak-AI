@@ -37,23 +37,38 @@ class FakeUserDataClient:
         self._workout_diaries = workout_diaries or {}
         self._inbody_records = inbody_records or {}
         self._trainer_subject_access = trainer_subject_access or set()
+        # (메서드명, 첫 인자) 호출 기록 — "결제/구독 조회가 호출되지 않았다" 같은
+        # 부정 조건을 검증하는 테스트에서 사용한다.
+        self.calls: list[tuple[str, int]] = []
 
     async def get_subscription_status(self, user_id: int) -> SubscriptionStatus:
+        """생성자로 받은 subscriptions에서 그대로 반환한다."""
+        self.calls.append(("get_subscription_status", user_id))
         return self._subscriptions[user_id]
 
     async def get_payment_history(self, user_id: int) -> list[PaymentHistory]:
+        """기록이 없으면 빈 리스트를 반환한다."""
+        self.calls.append(("get_payment_history", user_id))
         return self._payment_histories.get(user_id, [])
 
     async def get_pt_usage(self, user_id: int) -> PtUsageSummary:
+        """생성자로 받은 pt_usages에서 그대로 반환한다."""
+        self.calls.append(("get_pt_usage", user_id))
         return self._pt_usages[user_id]
 
     async def get_pt_history(self, user_id: int) -> list[PtHistory]:
+        """기록이 없으면 빈 리스트를 반환한다."""
+        self.calls.append(("get_pt_history", user_id))
         return self._pt_histories.get(user_id, [])
 
     async def get_onboarding(self, user_id: int) -> OnboardingProfile | None:
+        """등록된 온보딩이 없으면 None을 반환한다."""
+        self.calls.append(("get_onboarding", user_id))
         return self._onboarding_profiles.get(user_id)
 
     async def get_recent_workouts(self, user_id: int, weeks: int = 4) -> list[WorkoutDiary]:
+        """오늘 기준 최근 weeks주 이내 운동일지만 걸러 반환한다."""
+        self.calls.append(("get_recent_workouts", user_id))
         cutoff = date.today() - timedelta(weeks=weeks)
         return [
             diary
@@ -64,6 +79,8 @@ class FakeUserDataClient:
     async def get_recent_inbody(
         self, user_id: int, months: int = 6, limit: int = 6
     ) -> list[InBodyRecord]:
+        """최근 months개월 이내 기록을 최신순으로 정렬해 최대 limit건만 반환한다."""
+        self.calls.append(("get_recent_inbody", user_id))
         cutoff = date.today() - timedelta(days=months * 30)
         records = [
             record
@@ -76,6 +93,8 @@ class FakeUserDataClient:
     async def assert_trainer_can_access(
         self, trainer_id: int, subject_user_id: int
     ) -> TrainerSubjectAccess:
+        """(trainer_id, subject_user_id) 조합이 trainer_subject_access에 없으면 거부한다."""
+        self.calls.append(("assert_trainer_can_access", trainer_id))
         if (trainer_id, subject_user_id) not in self._trainer_subject_access:
             raise SubjectAccessDeniedError()
         return TrainerSubjectAccess(

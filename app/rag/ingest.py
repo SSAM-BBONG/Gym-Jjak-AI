@@ -38,6 +38,8 @@ _CHUNK_CONFIG = "paragraph-v1"
 
 
 class ParsedDocument(BaseModel):
+    """front matter 파싱 결과 1건(메타데이터 + 본문)."""
+
     id: str
     title: str
     category: str
@@ -47,6 +49,8 @@ class ParsedDocument(BaseModel):
 
 
 class IngestResult(BaseModel):
+    """한 번의 ingest() 호출 결과 통계."""
+
     processed_files: int = 0
     added_chunks: int = 0
     updated_chunks: int = 0
@@ -55,6 +59,7 @@ class IngestResult(BaseModel):
 
 
 def _parse_document(path: Path) -> ParsedDocument:
+    """Markdown 파일의 front matter와 본문을 분리해 필수 필드를 검증한다."""
     text = path.read_text(encoding="utf-8")
     match = _FRONTMATTER_PATTERN.match(text)
     if not match:
@@ -76,6 +81,7 @@ def _parse_document(path: Path) -> ParsedDocument:
 
 
 def _chunk_text(body: str) -> list[str]:
+    """본문을 빈 줄 기준 문단 단위로 쪼갠다(paragraph-v1 청킹 전략)."""
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n", body)]
     return [p for p in paragraphs if p]
 
@@ -86,6 +92,7 @@ def _compute_document_hash(
     embedding_dimensions: int,
     chunk_config: str,
 ) -> str:
+    """파일 내용 + 임베딩 설정을 합쳐 해시를 만든다. 값이 같으면 재임베딩을 건너뛴다."""
     hasher = hashlib.sha256()
     hasher.update(file_bytes)
     hasher.update(embedding_model.encode("utf-8"))
@@ -95,6 +102,8 @@ def _compute_document_hash(
 
 
 class Ingestor:
+    """문서를 읽어 변경분만 Chroma에 반영하는 증분 인덱서."""
+
     def __init__(
         self,
         *,
@@ -113,17 +122,20 @@ class Ingestor:
         self._chunk_config = chunk_config
 
     def _load_manifest(self) -> dict:
+        """document_id별 해시·chunk_id 기록을 담은 manifest.json을 읽는다. 없으면 빈 dict."""
         if not self._manifest_path.exists():
             return {}
         return json.loads(self._manifest_path.read_text(encoding="utf-8"))
 
     def _save_manifest(self, manifest: dict) -> None:
+        """임시 파일에 쓴 뒤 os.replace로 원자적으로 교체한다(중간에 죽어도 파일이 깨지지 않음)."""
         self._manifest_path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = self._manifest_path.with_suffix(".json.tmp")
         tmp_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
         os.replace(tmp_path, self._manifest_path)
 
     async def ingest(self, sources: list[Path]) -> IngestResult:
+        """문서 목록을 읽어 해시가 바뀐 것만 재임베딩하고 결과 통계를 반환한다."""
         manifest = self._load_manifest()
         result = IngestResult()
 
@@ -188,6 +200,7 @@ class Ingestor:
 
 
 async def _run_cli(source_dir: Path, collection_name: str) -> None:
+    """CLI 진입점의 실제 작업: source_dir 아래 모든 .md 파일을 인덱싱하고 결과를 출력한다."""
     from app.rag.embeddings import GeminiEmbeddings
 
     settings = get_settings()
@@ -216,6 +229,7 @@ async def _run_cli(source_dir: Path, collection_name: str) -> None:
 
 
 def main() -> None:
+    """`python -m app.rag.ingest` 실행 시 호출되는 CLI 엔트리포인트."""
     parser = argparse.ArgumentParser(description="RAG 문서 증분 인덱싱")
     parser.add_argument("--source", type=Path, default=Path("data/documents"))
     parser.add_argument("--collection", type=str, default=COLLECTION_NAME)

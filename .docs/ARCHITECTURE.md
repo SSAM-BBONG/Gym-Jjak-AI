@@ -1,11 +1,25 @@
 # 🏗️ Gym-Jjak AI Server Architecture
 
 - 작성일: 2026-07-19
-- 최종 수정일: 2026-07-19
-- 상태: 초기 아키텍처 확정
+- 최종 수정일: 2026-07-22
+- 상태: Task 1~14 구현 완료(회원 챗봇 + 트레이너 루틴 분석). Spring 연동은 별도 계획으로 진행 예정
 - 문서 규칙: Markdown 파일명은 대문자로 작성하고, 주요 제목에는 의미에 맞는 이모지를 사용한다.
 
 > 이 문서는 AI 서버의 전체 구조와 챗봇 아키텍처를 기록한다. 아키텍처를 변경할 때는 관련 내용과 `최종 수정일`을 함께 갱신한다.
+
+## 🔧 실제 구현과의 차이 (2026-07-22 갱신)
+
+아래는 최초 설계와 실제 구현이 달라진 부분과 이유다. 나머지 섹션은 설계 의도를 그대로 담고 있어 참고 자료로 유지한다.
+
+| 항목 | 최초 설계 | 실제 구현 | 이유 |
+| --- | --- | --- | --- |
+| `app/chatbot/` 내부 구조 | `tools/`, `graph/{state,nodes,routes,builder}.py` 하위 폴더 | `tools.py`, `state.py`, `nodes.py`, `graph.py`, `prompts.py`, `service.py`, `router.py`, `dependencies.py`, `exceptions.py`, `schemas.py` 평면 구조 | 각 파일이 200줄 내외로 충분히 작아 폴더 분리가 과했음(YAGNI) |
+| `app/core/dependencies.py`에 챗봇 조립 | 계획에 포함 | **`app/chatbot/dependencies.py` 신설**, `core/dependencies.py`는 무수정 | diet 합류 이후 공용 모듈 소유권 재정리(`.docs/MODULE_OWNERSHIP.md`) 결정을 따름 — core는 어떤 도메인도 import하지 않는다 |
+| Function Calling 도구 이름 | `get_remaining_pt_count`, `get_onboarding_profile`, `get_inbody_summary` | `get_pt_usage`, `get_onboarding`, `get_recent_inbody` | `app/common/user_data_client.py`(Task 4)의 `UserDataClient` Port 메서드명과 통일 |
+| 응답 형식 | `{answer, intent, personalization_level, routine:{summary,days}, sources:[{title,url,section}]}` | `{request_id, session_id, answer, category, routine: RoutineResult\|null, sources:[{source,title,category}], limited: bool}` | Spring과의 실제 계약 협의 결과(요청/응답 예시는 계획서 Task 12 참고). `personalization_level` 대신 `limited`(bool) 하나로 단순화, `RoutineResult`는 Task 7~8에서 확정된 구조화 스키마를 그대로 사용 |
+| `chat_session`/`chat_message`/`chat_context` DB 테이블 | Spring RDS에 저장 | **미구현** — `InMemoryConversationProvider`(프로세스 메모리, 재시작 시 소멸)만 존재 | 계획서 자체가 "Redis/DB 연동은 Deferred Integration Plan"으로 명시. `ConversationProvider` Protocol만 확정해두고 구현체 교체는 후속 작업 |
+| 개인 데이터 조회 | Spring 조회 API 연동 | **미구현** — `InMemoryUserDataClient`가 항상 빈 값 반환(구독 비활성 등) | 동일하게 Deferred Integration Plan 범위. 현재 서버로 실제 채팅을 하면 항상 `CHATBOT_SUBSCRIPTION_REQUIRED`(403)가 반환됨 — 의도된 동작 |
+| SSE Streaming | 후속 검토 | **미구현**, non-streaming JSON만 | Fake 기반 성능 측정(Task 14) 결과 p99 8ms대로 스트리밍 필요성 낮음(단, 실제 Gemini 지연시간 반영 안 됨 — 실측 후 재검토 필요) |
 
 # 🌐 전체 아키텍처 흐름
 
@@ -421,3 +435,4 @@ Gemini 입력 문맥은 다음으로 구성한다.
 | 날짜 | 변경 내용 |
 | --- | --- |
 | 2026-07-19 | 전체 AI 서버 및 챗봇 초기 아키텍처 작성 |
+| 2026-07-22 | Task 1~14 구현 완료에 맞춰 "실제 구현과의 차이" 섹션 추가 (모듈 구조, DI 위치, 도구 이름, 응답 형식, 미구현 범위) |

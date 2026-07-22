@@ -41,11 +41,14 @@ _GENERAL_SORENESS_CAUTION = (
 
 
 class SafetyAssessment(BaseModel):
+    """안전 검사 결과. status가 BLOCKED면 LLM을 호출하지 않고 즉시 종료한다."""
+
     status: Literal["BLOCKED", "LIMITED", "OK"]
     caution: str | None = None
 
 
 def assess_safety(message: str) -> SafetyAssessment:
+    """메시지에 고위험 키워드가 있으면 BLOCKED, 일반 근육통이면 LIMITED, 없으면 OK를 반환한다."""
     if any(keyword in message for keyword in _HIGH_RISK_KEYWORDS):
         return SafetyAssessment(status="BLOCKED", caution=_HIGH_RISK_CAUTION)
     if any(keyword in message for keyword in _GENERAL_SORENESS_KEYWORDS):

@@ -15,7 +15,9 @@ class LLMPort(Protocol):
         self,
         messages: list[LLMMessage],
         tools: list[Callable] | None = None,
-    ) -> LLMResponse: ...
+    ) -> LLMResponse:
+        """대화 메시지 목록으로 1회 호출한다. tools가 있으면 Function Calling을 시도한다."""
+        ...
 
     async def generate_structured_image(
         self,
@@ -24,7 +26,9 @@ class LLMPort(Protocol):
         image_bytes: bytes,
         mime_type: str,
         output_schema: type[StructuredOutput],
-    ) -> StructuredOutput: ...
+    ) -> StructuredOutput:
+        """이미지 1장과 프롬프트로 JSON Schema 구조화 출력을 받는다(diet 식단 분석용)."""
+        ...
 
     async def generate_structured(
         self,
