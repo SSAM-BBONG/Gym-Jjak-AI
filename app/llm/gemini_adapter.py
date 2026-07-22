@@ -6,7 +6,7 @@ import httpx
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_google_genai.chat_models import ChatGoogleGenerativeAIError
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from app.core.settings import settings
 from app.llm.errors import LLMInvalidResponseError, LLMNetworkError, LLMRateLimitedError
@@ -119,3 +119,35 @@ class GeminiAdapter:
         if isinstance(result, BaseModel):
             return output_schema.model_validate(result.model_dump())
         return output_schema.model_validate(result)
+
+    async def generate_structured(
+        self,
+        *,
+        prompt: str,
+        output_schema: type[StructuredOutput],
+    ) -> StructuredOutput:
+        """이미지 없이 텍스트 프롬프트만으로 구조화 출력을 받는다.
+        generate_structured_image()와 달리 이미지 파트가 필요 없는 순수 텍스트 호출이다."""
+        structured_model = self._get_model().with_structured_output(
+            schema=output_schema.model_json_schema(),
+            method="json_schema",
+        )
+        try:
+            result = await asyncio.wait_for(
+                structured_model.ainvoke([HumanMessage(content=prompt)]),
+                timeout=settings.gemini_timeout_seconds,
+            )
+        except (httpx.ConnectError, httpx.TimeoutException) as e:
+            raise LLMNetworkError(str(e)) from e
+        except ChatGoogleGenerativeAIError as e:
+            error_text = str(e)
+            if "429" in error_text or "RESOURCE_EXHAUSTED" in error_text:
+                raise LLMRateLimitedError(error_text) from e
+            raise LLMNetworkError(error_text) from e
+
+        try:
+            if isinstance(result, BaseModel):
+                return output_schema.model_validate(result.model_dump())
+            return output_schema.model_validate(result)
+        except ValidationError as e:
+            raise LLMInvalidResponseError(str(e)) from e

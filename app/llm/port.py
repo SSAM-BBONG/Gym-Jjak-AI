@@ -25,3 +25,13 @@ class LLMPort(Protocol):
         mime_type: str,
         output_schema: type[StructuredOutput],
     ) -> StructuredOutput: ...
+
+    async def generate_structured(
+        self,
+        *,
+        prompt: str,
+        output_schema: type[StructuredOutput],
+    ) -> StructuredOutput:
+        """이미지 없이 텍스트 프롬프트만으로 JSON Schema 구조화 출력을 받는다.
+        챗봇 루틴 추천(RoutineResult) 등 이미지가 없는 구조화 응답에 사용한다."""
+        ...
