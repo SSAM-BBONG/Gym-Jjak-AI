@@ -1,6 +1,6 @@
-from typing import Any, Callable
+from typing import Any, AsyncIterator, Callable
 
-from app.llm.models import LLMMessage, LLMResponse
+from app.llm.models import LLMMessage, LLMResponse, LLMStreamChunk
 
 
 class FakeLLMPort:
@@ -42,6 +42,26 @@ class FakeLLMPort:
                 raise next_item
             return next_item
         return self.response
+
+    async def stream(
+        self,
+        messages: list[LLMMessage],
+        tools: list[Callable] | None = None,
+    ) -> AsyncIterator[LLMStreamChunk]:
+        """generate()와 동일한 response/responses_queue를 재사용한다. 텍스트가 있으면
+        델타 1개로 흘려보낸 뒤 최종 응답을 담은 청크를 낸다."""
+        self.received_messages.append(messages)
+        self.received_tools.append(tools)
+        if self.responses_queue:
+            next_item = self.responses_queue.pop(0)
+            if isinstance(next_item, Exception):
+                raise next_item
+            response = next_item
+        else:
+            response = self.response
+        if response.text:
+            yield LLMStreamChunk(delta=response.text)
+        yield LLMStreamChunk(response=response)
 
     async def generate_structured(self, *, prompt: str, output_schema: type) -> Any:
         """호출 인자를 기록하고 미리 설정된 structured_response를 그대로 반환한다."""
