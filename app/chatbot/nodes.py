@@ -212,11 +212,13 @@ async def rag_node(state: ChatState, config: RunnableConfig) -> dict:
 
 async def routine_node(state: ChatState, config: RunnableConfig) -> dict:
     """루틴 추천. RoutineService(Task 8)를 그대로 호출한다 — 안전검사·구독확인·RAG·
-    LLM 구조화 출력은 전부 그 서비스 책임이다."""
+    LLM 구조화 출력은 전부 그 서비스 책임이다. 실시간 토큰 스트리밍은 없지만, delta 이벤트가
+    항상 한 번은 나가도록 완성된 요약을 단일 델타로 stream_queue에 흘려보낸다."""
     deps = _deps(config)
     result = await deps.routine_service.recommend_for_member(
         actor=state["actor"], request=RoutineRequest(message=state["message"])
     )
+    await _stream_queue(config).put(result.summary)
     return {
         "routine_result": result,
         "answer": result.summary,
@@ -226,7 +228,10 @@ async def routine_node(state: ChatState, config: RunnableConfig) -> dict:
 
 
 async def reject_node(state: ChatState, config: RunnableConfig) -> dict:
-    """서비스 무관 질문, 타인 정보 요청 등. 도구/LLM을 전혀 호출하지 않고 정중히 거절한다."""
+    """서비스 무관 질문, 타인 정보 요청 등. 도구/LLM을 전혀 호출하지 않고 정중히 거절한다.
+    다른 route와 마찬가지로 delta 이벤트가 한 번은 나가도록 거절 메시지를 단일 델타로
+    stream_queue에 흘려보낸다."""
+    await _stream_queue(config).put(REJECT_MESSAGE)
     return {"answer": REJECT_MESSAGE, "sources": []}
 
 
