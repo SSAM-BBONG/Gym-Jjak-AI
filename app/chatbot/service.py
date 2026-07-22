@@ -98,41 +98,45 @@ class ChatbotService:
         """요청 1건을 그래프로 실행하고 SSE 이벤트를 흘려보낸다."""
         request_id = get_request_id()
 
-        summary = await self._deps.conversation_provider.load_summary(
-            request.session_id, request.actor.user_id
-        )
-        recent_messages = await self._deps.conversation_provider.load_recent_messages(
-            request.session_id, request.actor.user_id
-        )
-        contexts = await self._deps.conversation_provider.load_context(
-            request.session_id, request.actor.user_id
-        )
+        try:
+            summary = await self._deps.conversation_provider.load_summary(
+                request.session_id, request.actor.user_id
+            )
+            recent_messages = await self._deps.conversation_provider.load_recent_messages(
+                request.session_id, request.actor.user_id
+            )
+            contexts = await self._deps.conversation_provider.load_context(
+                request.session_id, request.actor.user_id
+            )
 
-        initial_state = ChatState(
-            request_id=request_id,
-            session_id=request.session_id,
-            actor=request.actor,
-            message=request.message,
-            intent_hint=request.intent_hint,
-            summary=summary,
-            recent_messages=recent_messages,
-            contexts=contexts,
-            llm_call_count=0,
-            tool_call_count=0,
-        )
+            initial_state = ChatState(
+                request_id=request_id,
+                session_id=request.session_id,
+                actor=request.actor,
+                message=request.message,
+                intent_hint=request.intent_hint,
+                summary=summary,
+                recent_messages=recent_messages,
+                contexts=contexts,
+                llm_call_count=0,
+                tool_call_count=0,
+            )
 
-        tool_registry = ToolRegistry(
-            user_data=self._deps.user_data,
-            context=ToolExecutionContext(actor=request.actor),
-        )
-        queue: asyncio.Queue = asyncio.Queue()
-        config = {
-            "configurable": {
-                "deps": self._deps,
-                "tool_registry": tool_registry,
-                "stream_queue": queue,
+            tool_registry = ToolRegistry(
+                user_data=self._deps.user_data,
+                context=ToolExecutionContext(actor=request.actor),
+            )
+            queue: asyncio.Queue = asyncio.Queue()
+            config = {
+                "configurable": {
+                    "deps": self._deps,
+                    "tool_registry": tool_registry,
+                    "stream_queue": queue,
+                }
             }
-        }
+        except Exception as e:  # 대화 이력/요약/컨텍스트 로딩 실패도 error 이벤트로 통일한다.
+            yield _sse_event("error", _error_payload(e, request_id))
+            return
 
         task = asyncio.create_task(self._run_graph_and_signal(initial_state, config, queue))
         done_signal: _StreamDone | None = None

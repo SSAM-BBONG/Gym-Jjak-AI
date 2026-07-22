@@ -165,6 +165,24 @@ async def test_chat_emits_timeout_error_event_when_graph_exceeds_budget(monkeypa
     assert data["code"] == "CHATBOT_REQUEST_TIMEOUT"
 
 
+async def test_chat_emits_error_event_when_conversation_provider_load_fails() -> None:
+    builder = _Builder()
+    service = build_service(builder)
+
+    async def _boom(*args, **kwargs):
+        raise RuntimeError("대화 이력 조회 실패")
+
+    builder.conversation.load_summary = _boom
+
+    events = await _run(service, chat_request())
+
+    assert len(events) == 1
+    event, data = events[0]
+    assert event == "error"
+    assert data["code"] == "INTERNAL_ERROR"
+    assert data["request_id"]
+
+
 async def test_chat_emits_llm_call_limit_exceeded_error_event() -> None:
     builder = _Builder()
     builder.llm.responses_queue = [
