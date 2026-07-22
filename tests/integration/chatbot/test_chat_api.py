@@ -1,3 +1,8 @@
+"""회원 챗봇 API 계약 테스트. SSE(text/event-stream) 응답 헤더, done/error 이벤트
+포맷, 인증/검증 오류(스트림 진입 전 실패)를 검증한다."""
+
+import json
+
 from httpx import ASGITransport, AsyncClient
 
 from app.chatbot.dependencies import get_chatbot_service
@@ -7,14 +12,37 @@ from main import app
 _HEADERS = {"X-Internal-Api-Key": "local-development-only"}
 
 
+def _sse_event(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _parse_sse(text: str) -> list[tuple[str, dict]]:
+    events = []
+    for block in text.strip().split("\n\n"):
+        if not block:
+            continue
+        lines = block.split("\n")
+        event = lines[0].removeprefix("event: ")
+        data = json.loads(lines[1].removeprefix("data: "))
+        events.append((event, data))
+    return events
+
+
 class FakeChatbotService:
-    def __init__(self, response: ChatResponse) -> None:
-        self.response = response
+    """라우터 배선(SSE 헤더, 이벤트 포맷)만 검증하면 되므로 delta 없이
+    done 또는 error 이벤트 하나만 낸다."""
+
+    def __init__(self, *, done: ChatResponse | None = None, error: dict | None = None) -> None:
+        self.done = done
+        self.error = error
         self.received_requests: list = []
 
     async def chat(self, request):
         self.received_requests.append(request)
-        return self.response
+        if self.error is not None:
+            yield _sse_event("error", self.error)
+            return
+        yield _sse_event("done", self.done.model_dump(mode="json"))
 
 
 def _payload(**overrides) -> dict:
@@ -28,9 +56,9 @@ def _payload(**overrides) -> dict:
     return payload
 
 
-async def test_chat_message_returns_common_response_contract() -> None:
+async def test_chat_message_streams_done_event_with_common_response_contract() -> None:
     fake = FakeChatbotService(
-        ChatResponse(
+        done=ChatResponse(
             request_id="req-1", session_id="019f0000-0000-7000-8000-000000000001",
             answer="환불은 7일 이내 가능합니다.", category="SERVICE_POLICY",
             routine=None, sources=[], limited=False,
@@ -46,10 +74,22 @@ async def test_chat_message_returns_common_response_contract() -> None:
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    body = response.json()
-    assert body["answer"] == "환불은 7일 이내 가능합니다."
-    assert body["category"] == "SERVICE_POLICY"
-    assert body["limited"] is False
+    assert response.headers["content-type"].startswith("text/event-stream")
+    events = _parse_sse(response.text)
+    assert events == [
+        (
+            "done",
+            {
+                "request_id": "req-1",
+                "session_id": "019f0000-0000-7000-8000-000000000001",
+                "answer": "환불은 7일 이내 가능합니다.",
+                "category": "SERVICE_POLICY",
+                "routine": None,
+                "sources": [],
+                "limited": False,
+            },
+        )
+    ]
     assert len(fake.received_requests) == 1
 
 
@@ -71,14 +111,16 @@ async def test_chat_message_rejects_blank_message() -> None:
     assert response.json()["code"] == "REQUEST_VALIDATION_ERROR"
 
 
-async def test_chat_message_maps_service_error_code_to_http_status() -> None:
-    from app.routine.exceptions import SubscriptionRequiredError
-
-    class FailingService:
-        async def chat(self, request):
-            raise SubscriptionRequiredError()
-
-    app.dependency_overrides[get_chatbot_service] = lambda: FailingService()
+async def test_chat_message_streams_error_event_for_service_error_code() -> None:
+    fake = FakeChatbotService(
+        error={
+            "code": "CHATBOT_SUBSCRIPTION_REQUIRED",
+            "message": "활성 구독이 있어야 루틴 추천을 이용할 수 있습니다.",
+            "request_id": "req-1",
+            "retryable": False,
+        }
+    )
+    app.dependency_overrides[get_chatbot_service] = lambda: fake
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(
@@ -87,5 +129,16 @@ async def test_chat_message_maps_service_error_code_to_http_status() -> None:
     finally:
         app.dependency_overrides.clear()
 
-    assert response.status_code == 403
-    assert response.json()["code"] == "CHATBOT_SUBSCRIPTION_REQUIRED"
+    assert response.status_code == 200  # 스트림은 항상 200으로 시작하고, 에러는 이벤트로 전달된다.
+    events = _parse_sse(response.text)
+    assert events == [
+        (
+            "error",
+            {
+                "code": "CHATBOT_SUBSCRIPTION_REQUIRED",
+                "message": "활성 구독이 있어야 루틴 추천을 이용할 수 있습니다.",
+                "request_id": "req-1",
+                "retryable": False,
+            },
+        )
+    ]
