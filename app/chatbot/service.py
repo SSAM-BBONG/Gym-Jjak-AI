@@ -9,6 +9,7 @@ error 이벤트로 통일한다 — 스트림은 이미 200으로 시작했으�
 
 import asyncio
 import json
+import logging
 from typing import AsyncIterator
 
 from app.chatbot.exceptions import ChatRequestTimeoutError, LLMCallLimitExceededError
@@ -21,6 +22,8 @@ from app.core.logging import get_request_id
 from app.core.settings import get_settings
 from app.llm.errors import LLMError
 from app.routine.exceptions import ActorRoleNotAllowedError, SubscriptionRequiredError
+
+logger = logging.getLogger(__name__)
 
 _ERROR_CODE_TO_EXCEPTION = {
     "ROLE_NOT_ALLOWED": ActorRoleNotAllowedError,
@@ -90,8 +93,21 @@ class ChatbotService:
             )
             await queue.put(_StreamDone(result=result))
         except asyncio.TimeoutError:
+            logger.warning(
+                "chatbot_graph_timeout request_id=%s timeout_seconds=%s",
+                get_request_id(),
+                get_settings().request_timeout_seconds,
+            )
             await queue.put(_StreamDone(error=ChatRequestTimeoutError()))
+        except (AppError, LLMError) as e:  # 그래프 내부에서 던진 예상된 오류. 상세 코드만 남긴다.
+            logger.warning(
+                "chatbot_graph_handled_error request_id=%s code=%s",
+                get_request_id(),
+                getattr(e, "code", None),
+            )
+            await queue.put(_StreamDone(error=e))
         except Exception as e:  # 스트림을 안전하게 끝내기 위해 모든 예외를 error 이벤트로 변환한다.
+            logger.exception("chatbot_graph_unexpected_error request_id=%s", get_request_id())
             await queue.put(_StreamDone(error=e))
 
     async def chat(self, request: ChatRequest) -> AsyncIterator[str]:
@@ -134,7 +150,16 @@ class ChatbotService:
                     "stream_queue": queue,
                 }
             }
+        except (AppError, LLMError) as e:  # 예상된 오류. 상세 코드만 남기고 스택트레이스는 생략한다.
+            logger.warning(
+                "chatbot_setup_handled_error request_id=%s code=%s",
+                request_id,
+                getattr(e, "code", None),
+            )
+            yield _sse_event("error", _error_payload(e, request_id))
+            return
         except Exception as e:  # 대화 이력/요약/컨텍스트 로딩 실패도 error 이벤트로 통일한다.
+            logger.exception("chatbot_setup_unexpected_error request_id=%s", request_id)
             yield _sse_event("error", _error_payload(e, request_id))
             return
 
