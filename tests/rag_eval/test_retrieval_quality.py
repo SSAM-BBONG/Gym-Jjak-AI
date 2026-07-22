@@ -32,10 +32,14 @@ def _load_cases() -> list[dict]:
 
 @pytest.fixture
 async def retriever(tmp_path):
-    settings = Settings(
-        _env_file=None,
-        chroma_mode="persistent",
-        chroma_persist_directory=tmp_path / "chroma",
+    from app.core.settings import get_settings
+
+    base_settings = get_settings()  # .env를 정상적으로 읽은 실제 설정
+    settings = base_settings.model_copy(
+        update={
+            "chroma_mode": "persistent",
+            "chroma_persist_directory": tmp_path / "chroma",
+        }
     )
     if not settings.gemini_api_key:
         pytest.skip("GEMINI_API_KEY가 없어 RAG 품질 평가를 건너뜁니다.")

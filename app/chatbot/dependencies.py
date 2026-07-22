@@ -10,6 +10,7 @@ from app.chatbot.graph import build_chatbot_graph
 from app.chatbot.nodes import ChatbotDeps
 from app.chatbot.service import ChatbotService
 from app.common.conversation import ConversationProvider, InMemoryConversationProvider
+from app.common.dev_user_data import LocalDevUserDataClient
 from app.common.user_data_client import InMemoryUserDataClient, UserDataClient
 from app.core.dependencies import get_llm_client
 from app.core.settings import get_settings
@@ -23,7 +24,13 @@ from app.routine.service import RoutineService
 
 @lru_cache
 def get_user_data_client() -> UserDataClient:
-    """Spring 연동 전까지 사용하는 임시 구현체. Deferred Integration Plan에서 HTTP로 교체."""
+    """Spring 연동 전까지 사용하는 임시 구현체. Deferred Integration Plan에서 HTTP로 교체.
+
+    app_env=local일 때만 Swagger 등으로 바로 확인 가능한 샘플 데이터(LocalDevUserDataClient)를
+    쓰고, 그 외 환경(test/production)에서는 항상 안전한 빈 값만 반환하는
+    InMemoryUserDataClient를 쓴다 — 샘플 데이터가 실수로 운영에 노출되지 않게 하기 위함이다."""
+    if get_settings().app_env == "local":
+        return LocalDevUserDataClient()
     return InMemoryUserDataClient()
 
 

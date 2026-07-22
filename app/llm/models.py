@@ -6,11 +6,16 @@ Role = Literal["system", "user", "assistant", "tool"]
 
 
 class ToolCall(BaseModel):
-    """LLM이 요청한 도구 호출 1건."""
+    """LLM이 요청한 도구 호출 1건.
+
+    thought_signature는 Gemini 2.5+/3 계열이 Function Calling 멀티턴에서 추론 연속성을
+    검증하기 위해 요구하는 서명이다(base64). 다음 턴에 이 도구 호출을 다시 이력에 넣어
+    보낼 때 그대로 echo해야 하며, 없으면 Gemini가 400 INVALID_ARGUMENT로 거부한다."""
 
     name: str
     args: dict[str, Any]
     id: str
+    thought_signature: str | None = None
 
 
 class LLMMessage(BaseModel):

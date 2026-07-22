@@ -16,6 +16,14 @@ _LLM_ERROR_STATUS = {
     "LLM_INVALID_RESPONSE": 502,
 }
 
+# LLM_INVALID_RESPONSE(요청 자체가 잘못됨/응답 구조 검증 실패)는 재시도해도 같은 결과를
+# 반복하므로 retryable=False다. 네트워크·요청한도 초과만 사용자가 다시 시도할 여지가 있다.
+_LLM_ERROR_RETRYABLE = {
+    "LLM_NETWORK_ERROR": True,
+    "LLM_RATE_LIMITED": True,
+    "LLM_INVALID_RESPONSE": False,
+}
+
 
 def _error_response(status_code: int, code: str, message: str, retryable: bool) -> JSONResponse:
     """모든 오류 응답이 공유하는 빌더. 본문 request_id와 X-Request-ID 헤더를 항상 함께
@@ -60,12 +68,13 @@ def register_exception_handlers(app: FastAPI) -> None:
         """Gemini 호출 실패(LLMError 계열)를 오류 코드별 상태코드로 변환한다."""
         logger.warning("llm_error code=%s", exc.code)
         status_code = _LLM_ERROR_STATUS.get(exc.code, 500)
-        return _error_response(
-            status_code,
-            exc.code,
-            "AI 서버 통신 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
-            True,
+        retryable = _LLM_ERROR_RETRYABLE.get(exc.code, False)
+        message = (
+            "AI 서버 통신 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
+            if retryable
+            else "요청을 처리하지 못했습니다. 다른 방식으로 다시 시도해 주세요."
         )
+        return _error_response(status_code, exc.code, message, retryable)
 
     @app.exception_handler(Exception)
     async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:

@@ -19,6 +19,14 @@ _ROLE_TO_MESSAGE_CLASS = {
     "assistant": AIMessage,
 }
 
+# langchain-google-genai 내부 전용 키(밑줄 2개, non-public)를 문자열로 그대로 미러링한다.
+# Gemini 2.5+/3 계열은 Function Calling 멀티턴에서 이전 턴의 thought_signature를 echo하지
+# 않으면 400 INVALID_ARGUMENT로 거부한다. langchain-google-genai는 응답 파싱 시 이 키로
+# AIMessage.additional_kwargs에 {tool_call_id: base64_signature}를 채워주고, 다음 턴 요청을
+# 만들 때도 같은 키에서 서명을 읽어간다 — 그래서 우리도 왕복시킬 때 이 키를 그대로 써야 한다.
+# 주의: langchain-google-genai 버전이 올라가며 이 내부 키 이름이 바뀌면 이 상수도 갱신해야 한다.
+_THOUGHT_SIGNATURE_KEY = "__gemini_function_call_thought_signatures__"
+
 
 def _to_langchain_message(message: LLMMessage):
     """LangChain은 이 파일 안에서만 다룬다 — 이 함수 밖으로 LangChain 타입이 나가지 않는다."""
@@ -26,15 +34,32 @@ def _to_langchain_message(message: LLMMessage):
         return ToolMessage(content=message.content, tool_call_id=message.tool_call_id or "")
     if message.role == "assistant" and message.tool_calls:
         # 이전 턴에서 모델이 요청한 도구 호출을 그대로 재현해야 LangChain이
-        # 뒤따르는 ToolMessage들과 올바르게 짝지어준다.
+        # 뒤따르는 ToolMessage들과 올바르게 짝지어준다. thought_signature가 있으면
+        # 같이 echo해야 Gemini 2.5+/3 계열이 요청을 거부하지 않는다.
+        signature_map = {
+            tc.id: tc.thought_signature for tc in message.tool_calls if tc.thought_signature
+        }
         return AIMessage(
             content=message.content,
             tool_calls=[
                 {"name": tc.name, "args": tc.args, "id": tc.id} for tc in message.tool_calls
             ],
+            additional_kwargs=({_THOUGHT_SIGNATURE_KEY: signature_map} if signature_map else {}),
         )
     message_cls = _ROLE_TO_MESSAGE_CLASS[message.role]
     return message_cls(content=message.content)
+
+
+def _raise_for_gemini_error(e: Exception) -> None:
+    """ChatGoogleGenerativeAIError를 세분화한다. 429는 재시도 가능한 요청 한도 초과,
+    INVALID_ARGUMENT(400)는 우리가 보낸 요청 자체가 잘못된 것이라 재시도해도 똑같이
+    실패하므로 network error와 구분한다."""
+    error_text = str(e)
+    if "429" in error_text or "RESOURCE_EXHAUSTED" in error_text:
+        raise LLMRateLimitedError(error_text) from e
+    if "INVALID_ARGUMENT" in error_text:
+        raise LLMInvalidResponseError(error_text) from e
+    raise LLMNetworkError(error_text) from e
 
 
 def _extract_text(content: object) -> str | None:
@@ -87,13 +112,18 @@ class GeminiAdapter:
         except (httpx.ConnectError, httpx.TimeoutException) as e:
             raise LLMNetworkError(str(e)) from e
         except ChatGoogleGenerativeAIError as e:
-            error_text = str(e)
-            if "429" in error_text or "RESOURCE_EXHAUSTED" in error_text:
-                raise LLMRateLimitedError(error_text) from e
-            raise LLMNetworkError(error_text) from e
+            _raise_for_gemini_error(e)
 
+        # Gemini가 함수 호출에 thought_signature를 실어 보내면 다음 턴에 그대로
+        # echo해야 하므로, 여기서 추출해 각 ToolCall에 담아둔다.
+        signature_map = response.additional_kwargs.get(_THOUGHT_SIGNATURE_KEY, {})
         tool_calls = [
-            ToolCall(name=tc["name"], args=tc["args"], id=tc["id"])
+            ToolCall(
+                name=tc["name"],
+                args=tc["args"],
+                id=tc["id"],
+                thought_signature=signature_map.get(tc["id"]),
+            )
             for tc in (response.tool_calls or [])
         ]
         text = _extract_text(response.content)
@@ -149,10 +179,7 @@ class GeminiAdapter:
         except (httpx.ConnectError, httpx.TimeoutException) as e:
             raise LLMNetworkError(str(e)) from e
         except ChatGoogleGenerativeAIError as e:
-            error_text = str(e)
-            if "429" in error_text or "RESOURCE_EXHAUSTED" in error_text:
-                raise LLMRateLimitedError(error_text) from e
-            raise LLMNetworkError(error_text) from e
+            _raise_for_gemini_error(e)
 
         try:
             if isinstance(result, BaseModel):
