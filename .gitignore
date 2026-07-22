@@ -12,3 +12,6 @@ htmlcov/
 
 # 개인 챗봇 구현 계획 문서
 app/chatbot/docs/
+
+# 개인 로컬 작업 지침 (팀 저장소에 커밋하지 않음)
+CLAUDE.md
