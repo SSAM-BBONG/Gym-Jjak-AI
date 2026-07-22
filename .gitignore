@@ -2,11 +2,16 @@
 __pycache__/
 *.pyc
 .env
+.env.*
+!.env.example
 .pytest_cache/
 pytest-cache-files-*/
+data/indexes/
+.coverage
+htmlcov/
 
 # 개인 챗봇 구현 계획 문서
 app/chatbot/docs/
 
-# 생성된 로컬 벡터 인덱스 (원본은 data/documents/, 여기서 재생성 가능)
-data/indexes/
+# 개인 로컬 작업 지침 (팀 저장소에 커밋하지 않음)
+CLAUDE.md
