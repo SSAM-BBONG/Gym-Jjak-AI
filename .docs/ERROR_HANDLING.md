@@ -176,7 +176,7 @@ Gemini 외의 읽기 전용 내부 조회는 사용자 데이터 정합성과 �
 | --- | --- | --- |
 | Gemini API | 실패한 단계 0회 | 정상 Function Calling 후속 호출은 허용하되 실패한 호출은 재시도하지 않음 |
 | 구조화 응답 재생성 | 0회 | Pydantic 실패 시 즉시 오류 처리 |
-| Spring 읽기 API | 최대 1회 | 연결 오류, Timeout, 502, 503 |
+| Spring 읽기 API | 최대 1회 | 연결 오류, Timeout, 모든 5xx(500/502/503/504) |
 | Spring 4xx | 0회 | 잘못된 요청과 권한 오류는 재시도하지 않음 |
 | Chroma 검색 | 0회 | 오류를 즉시 RAG 오류로 변환 |
 | 동일 Tool 반복 요청 | 0회 | 같은 Tool과 인자 반복 시 중단 |
@@ -314,3 +314,4 @@ Gemini 실패
 | 2026-07-19 | Gemini 무재시도 원칙을 포함한 초기 오류 처리 정책 작성 |
 | 2026-07-22 | 실제 구현된 오류 코드 표 반영, 미구현 코드(Spring 연동 의존)와 대체 구현 방식 명시 |
 | 2026-07-22 | 챗봇 스트리밍 엔드포인트 전환에 맞춰 "🌊 챗봇 스트리밍 엔드포인트 예외" 절 추가 — `POST /api/v1/chatbot/messages`만 모든 실패를 HTTP status 대신 SSE `error` 이벤트로 전달하는 예외를 명시 |
+| 2026-07-22 | Spring 읽기 API 재시도 조건을 "502·503"에서 "모든 5xx(500/502/503/504)"로 정합 — Deferred Integration Plan의 "5xx/timeout 1회 재시도" 및 신규 계약 문서 `.docs/SPRING_INTEGRATION.md`와 일치(전 엔드포인트가 idempotent GET) |

@@ -1,7 +1,7 @@
 # 🏗️ Gym-Jjak AI Server Architecture
 
 - 작성일: 2026-07-19
-- 최종 수정일: 2026-07-22
+- 최종 수정일: 2026-07-23
 - 상태: Task 1~14 구현 완료(회원 챗봇 + 트레이너 루틴 분석) + 챗봇 응답 SSE 스트리밍 전환 완료. Spring 연동은 별도 계획으로 진행 예정
 - 문서 규칙: Markdown 파일명은 대문자로 작성하고, 주요 제목에는 의미에 맞는 이모지를 사용한다.
 
@@ -17,9 +17,9 @@
 | `app/core/dependencies.py`에 챗봇 조립 | 계획에 포함 | **`app/chatbot/dependencies.py` 신설**, `core/dependencies.py`는 무수정 | diet 합류 이후 공용 모듈 소유권 재정리(`.docs/MODULE_OWNERSHIP.md`) 결정을 따름 — core는 어떤 도메인도 import하지 않는다 |
 | Function Calling 도구 이름 | `get_remaining_pt_count`, `get_onboarding_profile`, `get_inbody_summary` | `get_pt_usage`, `get_onboarding`, `get_recent_inbody` | `app/common/user_data_client.py`(Task 4)의 `UserDataClient` Port 메서드명과 통일 |
 | 응답 형식 | `{answer, intent, personalization_level, routine:{summary,days}, sources:[{title,url,section}]}` | `{request_id, session_id, answer, category, routine: RoutineResult\|null, sources:[{source,title,category}], limited: bool}` | Spring과의 실제 계약 협의 결과(요청/응답 예시는 계획서 Task 12 참고). `personalization_level` 대신 `limited`(bool) 하나로 단순화, `RoutineResult`는 Task 7~8에서 확정된 구조화 스키마를 그대로 사용 |
-| `chat_session`/`chat_message`/`chat_context` DB 테이블 | Spring RDS에 저장 | **미구현** — `InMemoryConversationProvider`(프로세스 메모리, 재시작 시 소멸)만 존재 | 계획서 자체가 "Redis/DB 연동은 Deferred Integration Plan"으로 명시. `ConversationProvider` Protocol만 확정해두고 구현체 교체는 후속 작업 |
+| `chat_session`/`chat_message`/`chat_context` DB 테이블 | Spring RDS에 저장 | **미구현** — `InMemoryConversationProvider`(프로세스 메모리, 재시작 시 소멸)만 존재 | 승인된 Spring 챗봇 설계에 맞춰 영속화는 Spring이 소유하고, Spring이 요청마다 검증된 대화 이력·요약·문맥을 FastAPI로 전달하는 계약을 후속 구현한다. 현재 FastAPI는 Spring 영속 저장소를 조회하거나 이 요청 이력 계약을 사용하지 않는다. `ConversationProvider` Protocol과 InMemory 구현은 교체 경계를 위한 현 상태일 뿐이다. |
 | 개인 데이터 조회 | Spring 조회 API 연동 | **미구현** — `InMemoryUserDataClient`가 항상 빈 값 반환(구독 비활성 등) | 동일하게 Deferred Integration Plan 범위. 현재 서버로 실제 채팅을 하면 항상 `CHATBOT_SUBSCRIPTION_REQUIRED`(403)가 반환됨 — 의도된 동작 |
-| SSE Streaming | 후속 검토 | **구현 완료(2026-07-22)** — `POST /api/v1/chatbot/messages`가 `text/event-stream`으로 응답. 기존 non-streaming 응답은 제거하고 같은 경로를 교체 | Spring이 프론트와 이미 별도 웹소켓을 열어두고 있어, AI 서버 ↔ Spring 구간만 SSE로 스트리밍하면 Spring이 그 델타를 릴레이해 프론트까지 이어줄 수 있음(AI 서버 ↔ Spring 사이에 별도 웹소켓을 열 필요 없음). 자세한 설계와 흐름은 아래 "📡 SSE 스트리밍 응답" 절, 설계 근거는 `docs/superpowers/specs/2026-07-22-chatbot-streaming-design.md` 참고 |
+| SSE Streaming | 후속 검토 | **구현 완료(2026-07-22)** — `POST /api/v1/chatbot/messages`가 `text/event-stream`으로 응답. 기존 non-streaming 응답은 제거하고 같은 경로를 교체 | Spring→FastAPI의 POST 요청 하나를 응답 종료까지 유지하고, FastAPI가 그 **동일 응답**에서 반복 `delta` SSE 이벤트를 전송한다. Spring은 이를 프론트와의 기존 WebSocket으로 릴레이한다. delta마다 HTTP 요청을 새로 만들지 않으며 AI 서버 ↔ Spring 사이에 별도 WebSocket도 열지 않는다. 자세한 설계와 흐름은 아래 "📡 SSE 스트리밍 응답" 절 참고 |
 
 # 🌐 전체 아키텍처 흐름
 
@@ -71,7 +71,8 @@ flowchart LR
 - 개인 데이터는 Spring Boot 조회 API를 통해서만 가져온다.
 - Spring Boot 코드는 FastAPI 초기 구현 단계에서 수정하지 않는다.
 - 초기 FastAPI 구현은 Fake 또는 Mock 사용자 데이터로 완성한 뒤 마지막 연동 단계에서 Spring Boot API와 연결한다.
-- Java와 FastAPI 사이의 구체적인 인증 방식은 현재 설계 범위에서 보류한다.
+- Java와 FastAPI 사이의 인증·조회 API 계약은 `.docs/SPRING_INTEGRATION.md`에 정리한다(FastAPI→Spring 조회 8개 엔드포인트, `X-Internal-Api-Key` 공유 시크릿, 에러·재시도 매핑). 현재는 설계 제안 단계이며 Spring 팀 확정과 FastAPI 측 구현은 후속 작업이다.
+- Spring이 소유할 챗봇 영속화, 요청 이력 전달, WebSocket 릴레이의 승인 문서는 별도 Spring 저장소의 `Gym-Jjak/src/main/java/com/ssambbong/gymjjak/chatbot/docs/{ARCHITECTURE,WEBSOCKET_API,WEBSOCKET_FLOW,API}.md`에 있다. 이 문서의 Spring 영속화·이력 전달 내용은 해당 계약을 반영하기 위한 **후속 구현 항목**이며, 아직 FastAPI 코드에 구현되지 않았다.
 
 ## 👥 사용자별 제공 범위
 
@@ -332,17 +333,17 @@ flowchart TD
 
 ```text
 get_payment_history
-get_remaining_pt_count
+get_pt_usage
 get_pt_history
 get_subscription_status
-get_onboarding_profile
+get_onboarding
 get_recent_workouts
-get_inbody_summary
+get_recent_inbody
 ```
 
 ## 🧠 대화 기억
 
-DB에는 사용자의 전체 대화 기록을 보관하되, Gemini에는 모든 메시지를 전달하지 않는다.
+현재 FastAPI는 `InMemoryConversationProvider`에 대화 기억을 보관하므로 프로세스 재시작 시 사라진다. Spring 영속화 전환 후에는 Spring이 전체 이력을 보관하고, FastAPI에는 필요한 문맥만 요청 body `memory`로 전달한다. Gemini에는 모든 메시지를 전달하지 않는다.
 
 ```mermaid
 flowchart LR
@@ -366,48 +367,39 @@ Gemini 입력 문맥은 다음으로 구성한다.
 + 필요한 Tool 실행 결과
 ```
 
-## 🗄️ 채팅 데이터 구조
+## 🗄️ 채팅 데이터 구조 (후속 Spring 구현 계약)
 
-### `chat_session`
+### `chatbot_session`
 
 - 채팅방 소유 사용자
 - 외부용 Session Key
 - 제목과 상태
-- 대화 요약
-- 요약에 포함된 마지막 Message ID
+- 진행 중 요청 식별자와 만료 시각
 - 생성일, 수정일, 마지막 활동일
 
-### `chat_message`
+### `chatbot_message`
 
 - Chat Session ID
 - Role: `USER` 또는 `ASSISTANT`
 - 자연어 Content
-- 메시지 Intent
+- USER `intent_hint` 또는 ASSISTANT `category`
 - 구조화된 Routine JSON
+- Sources JSON, limited 여부
 - 메시지 순서
 - 생성일
 
-### `chat_context`
-
-- Context 유형
-- Context 값
-- 원본 Message ID
-- 수집일
-- 만료일
+요약·중요 Context는 현재 FastAPI 메모리 경계에만 존재한다. Spring 영속 모델에 별도 필드를 추가하기 전까지 요청 `memory`에서는 각각 `null`, 빈 배열로 전달한다.
 
 ## ⏳ 대화 보관 및 유효기간
 
-- 비활성 채팅방과 메시지는 마지막 활동일로부터 6개월 동안 보관한다.
-- 사용자는 채팅방을 직접 삭제할 수 있다.
-- 현재 부상·통증 Context는 7일 후 다시 확인한다.
-- 루틴 선호 조건은 30일 후 다시 확인한다.
-- 운동 장소와 가능한 시간은 해당 루틴 추천 Session에서만 유효하다.
-- 만료된 Context는 과거 메시지에 남아 있어도 현재 정보로 단정하지 않는다.
-- 회원 탈퇴 시 삭제 또는 익명화 방식은 Spring Boot의 회원 데이터 정책을 따른다.
+- 후속 Spring 구현에서 비활성 `chatbot_session`과 종속 `chatbot_message`는 마지막 활동일로부터 6개월 뒤 정리한다.
+- 직접 세션 삭제, Context TTL, 회원 탈퇴 시 처리 방식은 아직 구현·확정되지 않았으며 Spring 회원 데이터 정책과 함께 결정한다.
 
 ## 📡 SSE 스트리밍 응답
 
 `POST /api/v1/chatbot/messages`는 `200 text/event-stream`으로 응답한다. 인증 실패(401)와 요청 검증 실패(422)는 스트림을 열기 전에 발생하므로 기존과 동일하게 일반 JSON 오류 응답이다. 요청이 라우터 핸들러에 도달한 뒤에는 항상 200으로 스트림을 열고, 이후 실패는 전부 `error` 이벤트로 전달한다(§ `.docs/ERROR_HANDLING.md`의 "챗봇 스트리밍 엔드포인트 예외" 참고).
+
+Spring은 FastAPI로 **POST 요청 하나만** 보내고 그 연결을 열어 둔다. FastAPI는 그 한 HTTP 응답에서 `delta` 이벤트를 여러 번 전송하며, Spring은 각 delta를 기존 WebSocket 연결로 프론트에 릴레이한다. 따라서 토큰 또는 delta마다 Spring→FastAPI HTTP 요청을 반복하지 않는다. Spring 측 공개 계약과 릴레이 흐름은 별도 Spring 저장소의 `Gym-Jjak/src/main/java/com/ssambbong/gymjjak/chatbot/docs/{WEBSOCKET_API,WEBSOCKET_FLOW}.md`에서 확인한다.
 
 ```mermaid
 sequenceDiagram
@@ -421,7 +413,7 @@ sequenceDiagram
     loop 그래프 실행 중
         G-->>A: stream_queue.put(delta 텍스트)
         A-->>S: event: delta\ndata: {"text": "..."}
-        S-->>F: 웹소켓으로 글자 단위 릴레이
+        S-->>F: 기존 WebSocket으로 delta 릴레이
     end
     G-->>A: _StreamDone(result 또는 error)
     alt 성공
@@ -474,3 +466,5 @@ sequenceDiagram
 | 2026-07-19 | 전체 AI 서버 및 챗봇 초기 아키텍처 작성 |
 | 2026-07-22 | Task 1~14 구현 완료에 맞춰 "실제 구현과의 차이" 섹션 추가 (모듈 구조, DI 위치, 도구 이름, 응답 형식, 미구현 범위) |
 | 2026-07-22 | 챗봇 응답 SSE 스트리밍 전환 반영: "SSE Streaming" 행 구현 완료로 갱신, "📡 SSE 스트리밍 응답" 절 신규 추가, "🔄 요청 처리 흐름" 최종 노드를 SSE 이벤트로 갱신, 기존 "📦 응답 형식"을 `done` 이벤트 payload 설명으로 재정리 |
+| 2026-07-22 | "🔒 시스템 경계"의 "Java·FastAPI 인증 방식 보류" 문장을 신규 계약 문서 `.docs/SPRING_INTEGRATION.md` 참조로 갱신(FastAPI→Spring 조회 API 계약) |
+| 2026-07-23 | 승인된 Spring 챗봇 문서 경로를 교차 참조하고, Spring 소유 영속화·요청 이력 전달 계약은 후속 구현임을 명시. 단일 Spring→FastAPI POST의 동일 SSE 응답에서 반복 delta를 전송하고 Spring이 기존 WebSocket으로 릴레이하는 흐름(Delta별 HTTP 재요청 없음)을 명확화 |

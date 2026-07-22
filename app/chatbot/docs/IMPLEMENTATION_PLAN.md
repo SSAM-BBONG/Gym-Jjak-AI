@@ -3,10 +3,11 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 - 작성일: 2026-07-19
-- 최종 수정일: 2026-07-22
+- 최종 수정일: 2026-07-23
 - 상태: **Task 1~14 구현 완료** + **챗봇 응답 SSE 스트리밍 전환 완료.** 회원 챗봇 API(`POST /api/v1/chatbot/messages`)가 이제 `text/event-stream`으로 응답하며, 트레이너 루틴 분석 API(`POST /api/v1/routines/trainer-analysis`)는 기존과 동일(non-streaming)하다. 둘 다 Fake 기반으로 동작하며, 전체 테스트 170 passed. Spring 실 연동(Deferred Integration Plan)은 별도 계획으로 이어감.
 - 설계와 실제 구현이 달라진 부분과 이유는 `.docs/ARCHITECTURE.md`, `.docs/ERROR_HANDLING.md`, `.docs/TESTING.md`의 "🔧 실제 구현과의 차이" 절에 정리했다.
 - 챗봇 SSE 스트리밍 전환의 상세 설계·구현 계획은 `docs/superpowers/specs/2026-07-22-chatbot-streaming-design.md`, `docs/superpowers/plans/2026-07-22-chatbot-sse-streaming.md`를 참고한다(아래 "Deferred Integration Plan" 3번 항목 참고).
+- Spring 소유 챗봇 영속화, 요청 이력 전달, WebSocket 릴레이 계약은 별도 Spring 저장소의 `Gym-Jjak/src/main/java/com/ssambbong/gymjjak/chatbot/docs/{ARCHITECTURE,WEBSOCKET_API,WEBSOCKET_FLOW,API}.md`를 기준으로 한다. 이 문서에서 언급하는 Spring 연동·영속화·이력 요청 계약은 모두 **구현 대기 상태**이며, 현재 FastAPI에는 실 Spring 연동이 없다.
 
 **Goal:** FastAPI, LangGraph, LangChain, Gemini Function Calling, ChromaDB RAG를 이용해 Gym-Jjak 회원용 챗봇과 트레이너용 일회성 루틴 분석 기능을 구현한다.
 
@@ -1144,7 +1145,7 @@ Expected: 라우터와 의존성 조립이 없어 FAIL.
 - [x] **Step 3: ChatbotService와 라우터 구현**
 
 - `POST /api/v1/chatbot/messages`
-- non-streaming JSON 응답
+- SSE `delta`/`done`/`error` 이벤트 응답
 - body 검증 후 `ChatbotService.chat()` 호출
 - `role=USER`만 허용
 - 활성 구독이 아니면 `CHATBOT_SUBSCRIPTION_REQUIRED` 403
@@ -1168,7 +1169,7 @@ Expected: 라우터와 의존성 조립이 없어 FAIL.
 
 Run: `python -m pytest tests/integration/chatbot tests/integration/routine -q`
 
-Expected: 200/403/422/503 응답 계약, request_id, non-streaming 응답 테스트 PASS.
+Expected: 200/403/422/503 및 SSE `error` 이벤트 계약, request_id, 스트리밍 응답 테스트 PASS.
 
 - [x] **Step 7: 커밋**
 
@@ -1311,21 +1312,24 @@ git commit -m "docs: finalize chatbot implementation and verification"
 
 다음 항목은 이번 초기 구현이 완료된 뒤 별도 계획으로 진행한다.
 
-1. **Spring Boot 조회 API 연결**
+1. **Spring Boot 조회 API 연결** — 계약 설계 완료(2026-07-22), FastAPI 측 구현 대기
+   - 계약·설계 문서: `.docs/SPRING_INTEGRATION.md`(8개 엔드포인트, `X-Internal-Api-Key`, 에러·재시도 매핑, `SpringUserDataClient` 설계, Spring 팀 확인 사항)
    - FakeUserDataClient를 HTTP 구현으로 교체
    - 내부 인증 계약 확정
    - Spring 5xx/timeout만 최대 1회 재시도
    - RDS 직접 접근 금지 유지
 
-2. **채팅 영속화와 Redis 도입**
-   - `ConversationProvider`의 Spring/Redis 구현 추가
-   - 목록 조회, 이어하기, 6개월 비활성 데이터 정리
-   - InMemory 구현은 테스트 전용으로 유지
+2. **Spring 소유 챗봇 영속화 및 이력 요청 계약 구현**
+   - Spring이 `chatbot_session`/`chatbot_message`의 영속화와 목록 조회·이어하기·6개월 비활성 데이터 정리를 소유한다. 요약·문맥은 요청 `memory`에 포함하며, 별도 영속 필드는 후속 확장 시에만 추가한다. FastAPI는 RDS나 Spring 저장소에 직접 접근하지 않는다.
+   - Spring은 FastAPI 호출 시 인증·인가된 actor와 함께 필요한 대화 이력, 요약, 문맥을 요청에 포함해 전달한다. FastAPI는 전달받은 이력으로만 프롬프트 문맥을 구성하며, 대화 이력을 별도 조회하지 않는다.
+   - FastAPI 측 `ConversationProvider`의 Spring/Redis 구현 또는 요청 이력 어댑터 전환은 **후속 구현**이다. 현재는 `InMemoryConversationProvider`만 사용하며 프로세스 재시작 시 소멸한다.
+   - 세부 계약은 별도 Spring 저장소의 `Gym-Jjak/src/main/java/com/ssambbong/gymjjak/chatbot/docs/{ARCHITECTURE,API}.md`를 따른다.
 
 3. **SSE Streaming 전환 판단 — ✅ 2026-07-22 완료**
-   - Spring이 프론트와 이미 별도 웹소켓을 열어두고 있어, AI 서버 ↔ Spring 구간만 SSE로 전환하면 Spring이 델타를 그대로 릴레이할 수 있다고 판단 → AI 서버 ↔ Spring 사이에 별도 웹소켓을 새로 열 필요 없음
+   - Spring이 FastAPI로 보내는 **POST 요청 하나를 응답 완료까지 유지**한다. FastAPI는 그 동일 응답에서 반복 SSE `delta` 이벤트를 전송하고, Spring은 프론트와 이미 열어 둔 WebSocket으로 각 delta를 릴레이한다. delta마다 Spring→FastAPI HTTP 요청을 새로 보내지 않으며 AI 서버 ↔ Spring 사이에 별도 WebSocket도 열지 않는다.
    - 기존 `POST /api/v1/chatbot/messages`를 **같은 경로에서 스트리밍 방식으로 교체**(신규 버전/경로 분리 없음) — 구버전 클라이언트 호환은 유지하지 않기로 결정
    - 에러 전달은 HTTP status 대신 SSE `error` 이벤트로 통일(단순화 우선 결정, `.docs/ERROR_HANDLING.md`의 "🌊 챗봇 스트리밍 엔드포인트 예외" 참고)
+   - Spring 측 이벤트·WebSocket 계약은 별도 Spring 저장소의 `Gym-Jjak/src/main/java/com/ssambbong/gymjjak/chatbot/docs/{WEBSOCKET_API,WEBSOCKET_FLOW}.md`를 기준으로 한다.
    - 상세 설계: `docs/superpowers/specs/2026-07-22-chatbot-streaming-design.md`
    - 구현 계획(7 Task, TDD): `docs/superpowers/plans/2026-07-22-chatbot-sse-streaming.md`
    - 흐름도와 이벤트 포맷은 `.docs/ARCHITECTURE.md`의 "📡 SSE 스트리밍 응답" 절에 반영
