@@ -2,7 +2,7 @@
 
 - 작성일: 2026-07-19
 - 최종 수정일: 2026-07-22
-- 상태: Task 1~14 구현 완료(회원 챗봇 + 트레이너 루틴 분석). Spring 연동은 별도 계획으로 진행 예정
+- 상태: Task 1~14 구현 완료(회원 챗봇 + 트레이너 루틴 분석) + 챗봇 응답 SSE 스트리밍 전환 완료. Spring 연동은 별도 계획으로 진행 예정
 - 문서 규칙: Markdown 파일명은 대문자로 작성하고, 주요 제목에는 의미에 맞는 이모지를 사용한다.
 
 > 이 문서는 AI 서버의 전체 구조와 챗봇 아키텍처를 기록한다. 아키텍처를 변경할 때는 관련 내용과 `최종 수정일`을 함께 갱신한다.
@@ -19,7 +19,7 @@
 | 응답 형식 | `{answer, intent, personalization_level, routine:{summary,days}, sources:[{title,url,section}]}` | `{request_id, session_id, answer, category, routine: RoutineResult\|null, sources:[{source,title,category}], limited: bool}` | Spring과의 실제 계약 협의 결과(요청/응답 예시는 계획서 Task 12 참고). `personalization_level` 대신 `limited`(bool) 하나로 단순화, `RoutineResult`는 Task 7~8에서 확정된 구조화 스키마를 그대로 사용 |
 | `chat_session`/`chat_message`/`chat_context` DB 테이블 | Spring RDS에 저장 | **미구현** — `InMemoryConversationProvider`(프로세스 메모리, 재시작 시 소멸)만 존재 | 계획서 자체가 "Redis/DB 연동은 Deferred Integration Plan"으로 명시. `ConversationProvider` Protocol만 확정해두고 구현체 교체는 후속 작업 |
 | 개인 데이터 조회 | Spring 조회 API 연동 | **미구현** — `InMemoryUserDataClient`가 항상 빈 값 반환(구독 비활성 등) | 동일하게 Deferred Integration Plan 범위. 현재 서버로 실제 채팅을 하면 항상 `CHATBOT_SUBSCRIPTION_REQUIRED`(403)가 반환됨 — 의도된 동작 |
-| SSE Streaming | 후속 검토 | **미구현**, non-streaming JSON만 | Fake 기반 성능 측정(Task 14) 결과 p99 8ms대로 스트리밍 필요성 낮음(단, 실제 Gemini 지연시간 반영 안 됨 — 실측 후 재검토 필요) |
+| SSE Streaming | 후속 검토 | **구현 완료(2026-07-22)** — `POST /api/v1/chatbot/messages`가 `text/event-stream`으로 응답. 기존 non-streaming 응답은 제거하고 같은 경로를 교체 | Spring이 프론트와 이미 별도 웹소켓을 열어두고 있어, AI 서버 ↔ Spring 구간만 SSE로 스트리밍하면 Spring이 그 델타를 릴레이해 프론트까지 이어줄 수 있음(AI 서버 ↔ Spring 사이에 별도 웹소켓을 열 필요 없음). 자세한 설계와 흐름은 아래 "📡 SSE 스트리밍 응답" 절, 설계 근거는 `docs/superpowers/specs/2026-07-22-chatbot-streaming-design.md` 참고 |
 
 # 🌐 전체 아키텍처 흐름
 
@@ -267,8 +267,10 @@ flowchart TD
     REJECT --> ANSWER
     ANSWER --> VALIDATE["Pydantic 응답 검증"]
     VALIDATE --> SAVE["메시지 및 문맥 저장"]
-    SAVE --> RESPONSE["완성된 JSON 응답"]
+    SAVE --> RESPONSE["SSE done 이벤트\n(ANSWER 생성 중에는 delta 이벤트로 선반영)"]
 ```
+
+> `ANSWER` 단계(개인 이용정보/정책 RAG의 실제 Gemini 텍스트 생성, 루틴/거절의 완성된 답변)는 아래 "📡 SSE 스트리밍 응답" 절에서 설명하는 대로 `delta` 이벤트로 먼저 흘러나가고, 그래프 실행이 끝나면 `SAVE` 이후 `done`(또는 실패 시 `error`) 이벤트로 마무리된다. 그래프의 노드 구성과 조건부 분기 자체는 스트리밍 도입 전과 동일하다.
 
 ## 🏋️ 루틴 추천 흐름
 
@@ -403,26 +405,61 @@ Gemini 입력 문맥은 다음으로 구성한다.
 - 만료된 Context는 과거 메시지에 남아 있어도 현재 정보로 단정하지 않는다.
 - 회원 탈퇴 시 삭제 또는 익명화 방식은 Spring Boot의 회원 데이터 정책을 따른다.
 
-## 📦 응답 형식
+## 📡 SSE 스트리밍 응답
 
-일반 JSON API로 완성된 응답을 한 번에 반환한다. 초기 버전에서는 스트리밍을 사용하지 않으며 전체 응답시간을 측정한 뒤 SSE 도입 여부를 판단한다.
+`POST /api/v1/chatbot/messages`는 `200 text/event-stream`으로 응답한다. 인증 실패(401)와 요청 검증 실패(422)는 스트림을 열기 전에 발생하므로 기존과 동일하게 일반 JSON 오류 응답이다. 요청이 라우터 핸들러에 도달한 뒤에는 항상 200으로 스트림을 열고, 이후 실패는 전부 `error` 이벤트로 전달한다(§ `.docs/ERROR_HANDLING.md`의 "챗봇 스트리밍 엔드포인트 예외" 참고).
+
+```mermaid
+sequenceDiagram
+    participant F as Frontend
+    participant S as Spring (Front↔Spring 웹소켓 이미 연결됨)
+    participant A as FastAPI (ChatbotService.chat)
+    participant G as LangGraph (백그라운드 Task)
+
+    S->>A: POST /api/v1/chatbot/messages
+    A->>G: asyncio.create_task(graph.ainvoke)
+    loop 그래프 실행 중
+        G-->>A: stream_queue.put(delta 텍스트)
+        A-->>S: event: delta\ndata: {"text": "..."}
+        S-->>F: 웹소켓으로 글자 단위 릴레이
+    end
+    G-->>A: _StreamDone(result 또는 error)
+    alt 성공
+        A-->>S: event: done\ndata: {ChatResponse 전체}
+    else 실패(access_guard, LLM 호출 한도, 타임아웃, 대화 이력 조회 실패 등)
+        A-->>S: event: error\ndata: {code, message, request_id, retryable}
+    end
+```
+
+- `agent_node`(개인 이용정보)와 `rag_node`(정책 RAG)는 Gemini 텍스트를 `LLMPort.stream()`으로 호출해 실제 토큰 단위 델타를 큐에 흘려보낸다.
+- `routine_node`(루틴 추천)와 `reject_node`(정중한 거절)는 Gemini 구조화 출력 또는 고정 문구라 토큰 스트리밍이 불가능하므로, 완성된 답변을 **단일 delta**로 한 번 흘려보낸 뒤 곧바로 `done`으로 마무리한다 — 모든 라우트가 "delta 최소 1개 이상 → done" 순서를 지키도록 통일했다.
+- `done` 이벤트의 `answer` 필드는 항상 **완성된 전체 텍스트**다. Spring은 이미 흘려보낸 delta들 뒤에 `done.answer`를 다시 이어붙이면 안 된다(중복 표시 방지) — `done.answer`는 저장/로그용 최종 텍스트로만 사용한다.
+- 에러 통일 원칙: access_guard 실패(구독 만료 등), `LLM_CALL_LIMIT_EXCEEDED`, 요청 타임아웃, 대화 이력(`conversation_provider`) 조회 실패를 포함한 **모든 실패 경로**가 예외를 던지는 대신 `error` 이벤트로 변환된다. 스트림이 이미 200으로 열린 뒤에는 HTTP status를 바꿀 수 없기 때문이며, 사용자가 명시적으로 선택한 단순화다.
+- 구현은 `ChatbotService.chat()` 안에서 그래프 실행(`graph.ainvoke`)을 백그라운드 `asyncio.Task`로 돌리고, `asyncio.Queue` + 종료 신호(`_StreamDone` sentinel)로 델타 이벤트와 종료 이벤트를 구분한다. 클라이언트(Spring) 연결이 끊기면 `finally`에서 백그라운드 task를 취소해 불필요한 LLM 호출을 막는다.
+- LangGraph의 노드 구성(`access_guard → intent_router → agent_node/rag_node/routine_node/reject_node → format_node → persist_node`)과 조건부 라우팅은 스트리밍 도입 전과 완전히 동일하다 — 각 노드가 LLM을 호출하는 지점만 스트리밍 방식으로 바뀌었다.
+
+## 📦 완성 응답(`done` 이벤트) 형식
+
+`done` 이벤트의 `data`는 다음 구조다(실제 필드는 `app/chatbot/schemas.py::ChatResponse`가 최신 기준).
 
 ```json
 {
-  "answer": "사용자에게 표시할 Markdown 답변",
-  "intent": "ROUTINE_RECOMMENDATION",
-  "personalization_level": "FULL",
+  "request_id": "019f0000-0000-7000-8000-000000000002",
+  "session_id": "019f0000-0000-7000-8000-000000000001",
+  "answer": "사용자에게 표시할 완성된 답변",
+  "category": "ROUTINE",
   "routine": {
     "summary": "루틴 구성 설명",
     "days": []
   },
   "sources": [
     {
+      "source": "data/documents/policy/refund.md",
       "title": "참고 문서 제목",
-      "url": "https://example.com/source",
-      "section": "관련 섹션"
+      "category": "policy"
     }
-  ]
+  ],
+  "limited": false
 }
 ```
 
@@ -436,3 +473,4 @@ Gemini 입력 문맥은 다음으로 구성한다.
 | --- | --- |
 | 2026-07-19 | 전체 AI 서버 및 챗봇 초기 아키텍처 작성 |
 | 2026-07-22 | Task 1~14 구현 완료에 맞춰 "실제 구현과의 차이" 섹션 추가 (모듈 구조, DI 위치, 도구 이름, 응답 형식, 미구현 범위) |
+| 2026-07-22 | 챗봇 응답 SSE 스트리밍 전환 반영: "SSE Streaming" 행 구현 완료로 갱신, "📡 SSE 스트리밍 응답" 절 신규 추가, "🔄 요청 처리 흐름" 최종 노드를 SSE 이벤트로 갱신, 기존 "📦 응답 형식"을 `done` 이벤트 payload 설명으로 재정리 |

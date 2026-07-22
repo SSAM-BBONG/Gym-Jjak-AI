@@ -4,8 +4,9 @@
 
 - 작성일: 2026-07-19
 - 최종 수정일: 2026-07-22
-- 상태: **Task 1~14 구현 완료.** 회원 챗봇 API(`POST /api/v1/chatbot/messages`)와 트레이너 루틴 분석 API(`POST /api/v1/routines/trainer-analysis`)가 Fake 기반으로 동작하며, 전체 테스트 146+ passed, 커버리지 88~90%. Spring 실 연동(Deferred Integration Plan)은 별도 계획으로 이어감.
+- 상태: **Task 1~14 구현 완료** + **챗봇 응답 SSE 스트리밍 전환 완료.** 회원 챗봇 API(`POST /api/v1/chatbot/messages`)가 이제 `text/event-stream`으로 응답하며, 트레이너 루틴 분석 API(`POST /api/v1/routines/trainer-analysis`)는 기존과 동일(non-streaming)하다. 둘 다 Fake 기반으로 동작하며, 전체 테스트 170 passed. Spring 실 연동(Deferred Integration Plan)은 별도 계획으로 이어감.
 - 설계와 실제 구현이 달라진 부분과 이유는 `.docs/ARCHITECTURE.md`, `.docs/ERROR_HANDLING.md`, `.docs/TESTING.md`의 "🔧 실제 구현과의 차이" 절에 정리했다.
+- 챗봇 SSE 스트리밍 전환의 상세 설계·구현 계획은 `docs/superpowers/specs/2026-07-22-chatbot-streaming-design.md`, `docs/superpowers/plans/2026-07-22-chatbot-sse-streaming.md`를 참고한다(아래 "Deferred Integration Plan" 3번 항목 참고).
 
 **Goal:** FastAPI, LangGraph, LangChain, Gemini Function Calling, ChromaDB RAG를 이용해 Gym-Jjak 회원용 챗봇과 트레이너용 일회성 루틴 분석 기능을 구현한다.
 
@@ -1321,10 +1322,13 @@ git commit -m "docs: finalize chatbot implementation and verification"
    - 목록 조회, 이어하기, 6개월 비활성 데이터 정리
    - InMemory 구현은 테스트 전용으로 유지
 
-3. **SSE Streaming 전환 판단**
-   - non-streaming p50/p95/p99 측정
-   - 체감 지연과 구현 복잡도 비교
-   - API 버전 또는 content negotiation으로 호환성 유지
+3. **SSE Streaming 전환 판단 — ✅ 2026-07-22 완료**
+   - Spring이 프론트와 이미 별도 웹소켓을 열어두고 있어, AI 서버 ↔ Spring 구간만 SSE로 전환하면 Spring이 델타를 그대로 릴레이할 수 있다고 판단 → AI 서버 ↔ Spring 사이에 별도 웹소켓을 새로 열 필요 없음
+   - 기존 `POST /api/v1/chatbot/messages`를 **같은 경로에서 스트리밍 방식으로 교체**(신규 버전/경로 분리 없음) — 구버전 클라이언트 호환은 유지하지 않기로 결정
+   - 에러 전달은 HTTP status 대신 SSE `error` 이벤트로 통일(단순화 우선 결정, `.docs/ERROR_HANDLING.md`의 "🌊 챗봇 스트리밍 엔드포인트 예외" 참고)
+   - 상세 설계: `docs/superpowers/specs/2026-07-22-chatbot-streaming-design.md`
+   - 구현 계획(7 Task, TDD): `docs/superpowers/plans/2026-07-22-chatbot-sse-streaming.md`
+   - 흐름도와 이벤트 포맷은 `.docs/ARCHITECTURE.md`의 "📡 SSE 스트리밍 응답" 절에 반영
 
 4. **배포형 Chroma 전환**
    - Chroma server 배포

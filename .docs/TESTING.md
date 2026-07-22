@@ -290,7 +290,9 @@ respx
 
 # 📊 성능 측정
 
-초기 버전은 완성된 JSON을 한 번에 반환하므로 전체 요청과 내부 실행 단계를 분리해 측정한다.
+> **2026-07-22 갱신**: `POST /api/v1/chatbot/messages`는 SSE(`text/event-stream`) 스트리밍으로 전환되었다(`docs/superpowers/specs/2026-07-22-chatbot-streaming-design.md`). 아래 "측정 원칙"의 4번 항목("Gemini 처리시간이 전체 지연 대부분을 차지하면 SSE Streaming을 검토한다")이 그 판단 기준이었으며, Spring이 프론트와 이미 열어둔 웹소켓으로 델타를 릴레이할 수 있다는 점이 결정적이었다. 아래 성능 측정 섹션 자체(단계별 처리시간 분리, Fake 기반 부하 테스트)는 스트리밍 전환과 무관하게 그대로 유효하다 — 단, "전체 응답시간"은 이제 TTFB(첫 delta까지의 시간)와 전체 스트림 종료(`done`/`error`)까지의 시간을 구분해서 봐야 한다.
+
+초기 버전은 완성된 JSON을 한 번에 반환했으나 SSE 전환 이후에는 델타 스트림 + 최종 `done`/`error` 이벤트로 응답한다. 전체 요청과 내부 실행 단계를 분리해 측정하는 원칙은 동일하다.
 
 ```mermaid
 flowchart LR
@@ -381,3 +383,4 @@ flowchart LR
 | --- | --- |
 | 2026-07-19 | 테스트 계층, RAG 평가, 성능 측정 및 부하 테스트 정책 작성 |
 | 2026-07-22 | 실제 테스트 디렉터리 구조, `--run-smoke`/`--run-rag-eval` 게이팅, 평가셋 규모, 커버리지 결과 반영 |
+| 2026-07-22 | 챗봇 SSE 스트리밍 전환 반영: "성능 측정" 절에 스트리밍 결정 배경과 TTFB/전체 스트림 종료시간 구분 필요성 추가. `tests/unit/llm/test_gemini_adapter_stream.py`, `tests/unit/llm/test_fake_llm_stream.py` 등 스트리밍 관련 테스트 추가 |
