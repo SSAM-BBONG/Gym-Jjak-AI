@@ -34,3 +34,12 @@ class LLMMessage(BaseModel):
 class LLMResponse(BaseModel):
     text: str | None = None
     tool_calls: list[ToolCall] = Field(default_factory=list)
+
+
+class LLMStreamChunk(BaseModel):
+    """LLM 스트리밍 응답 조각. delta가 있으면 텍스트 토큰 조각이고, response가 있으면
+    스트림의 마지막 청크로 전체 텍스트+tool_calls가 담긴 최종 응답이다.
+    한 청크에 delta와 response가 동시에 채워지는 일은 없다."""
+
+    delta: str | None = None
+    response: LLMResponse | None = None
