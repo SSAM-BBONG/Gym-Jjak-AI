@@ -2,6 +2,7 @@
 conversation_provider)과 이번 요청 전용 ToolRegistry는 그래프를 실행할 때
 config["configurable"]로 주입받는다 — 그래프 자체는 어떤 구현체인지 모른다."""
 
+import asyncio
 import json
 from dataclasses import dataclass
 
@@ -54,6 +55,10 @@ def _deps(config: RunnableConfig) -> ChatbotDeps:
 
 def _tool_registry(config: RunnableConfig) -> ToolRegistry:
     return config["configurable"]["tool_registry"]
+
+
+def _stream_queue(config: RunnableConfig) -> asyncio.Queue:
+    return config["configurable"]["stream_queue"]
 
 
 async def access_guard(state: ChatState, config: RunnableConfig) -> dict:
@@ -115,15 +120,24 @@ def _build_initial_agent_messages(state: ChatState) -> list[LLMMessage]:
 async def agent_node(state: ChatState, config: RunnableConfig) -> dict:
     """개인 데이터 질문 처리. 한 번 실행이 LLM 호출 1회다. 도구 호출을 요청하면
     pending_tool_calls를 채워 반환하고, 그래프가 tool_node로 보냈다가 다시 이리로 되돌린다
-    (이 재호출은 재시도가 아니라 정상적인 Function Calling 후속 턴이다)."""
+    (이 재호출은 재시도가 아니라 정상적인 Function Calling 후속 턴이다).
+    LLM 응답은 stream_queue로 델타를 흘려보내며 생성한다 — 도구 호출을 요청하는 중간 턴은
+    보통 텍스트가 비어 있어 실질적으로 델타가 나가지 않는다."""
     call_count = state.get("llm_call_count", 0)
     if call_count >= get_settings().llm_call_limit:
         return {"error_code": "LLM_CALL_LIMIT_EXCEEDED", "pending_tool_calls": []}
 
     deps = _deps(config)
+    queue = _stream_queue(config)
     llm_messages = state.get("llm_messages") or _build_initial_agent_messages(state)
 
-    response = await deps.llm.generate(llm_messages)
+    response = None
+    async for chunk in deps.llm.stream(llm_messages):
+        if chunk.delta:
+            await queue.put(chunk.delta)
+        if chunk.response is not None:
+            response = chunk.response
+
     assistant_message = LLMMessage(
         role="assistant", content=response.text or "", tool_calls=response.tool_calls
     )
@@ -172,11 +186,19 @@ async def tool_node(state: ChatState, config: RunnableConfig) -> dict:
 
 
 async def rag_node(state: ChatState, config: RunnableConfig) -> dict:
-    """서비스/정책 질문. RAG 검색 결과를 근거로 LLM이 1회 호출로 답변을 만든다."""
+    """서비스/정책 질문. RAG 검색 결과를 근거로 LLM이 1회 호출로 답변을 만든다.
+    답변 텍스트는 stream_queue로 델타를 흘려보내며 생성한다."""
     deps = _deps(config)
+    queue = _stream_queue(config)
     documents = await deps.retriever.search(state["message"], category=None, keywords=[], top_k=3)
     prompt = build_rag_prompt(message=state["message"], documents=documents)
-    response = await deps.llm.generate([LLMMessage(role="user", content=prompt)])
+
+    response = None
+    async for chunk in deps.llm.stream([LLMMessage(role="user", content=prompt)]):
+        if chunk.delta:
+            await queue.put(chunk.delta)
+        if chunk.response is not None:
+            response = chunk.response
 
     sources = [
         SourceReference(source=d.source, title=d.title, category=d.category) for d in documents

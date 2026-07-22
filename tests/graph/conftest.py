@@ -1,5 +1,6 @@
 """그래프 테스트 공용 픽스처. 모든 의존성은 Fake로 구성하고 config["configurable"]로 주입한다."""
 
+import asyncio
 from datetime import date
 
 import pytest
@@ -100,7 +101,13 @@ class _Builder:
             context=ToolExecutionContext(actor=actor or member_actor()),
             call_limit=call_limit,
         )
-        return {"configurable": {"deps": deps, "tool_registry": registry}}
+        return {
+            "configurable": {
+                "deps": deps,
+                "tool_registry": registry,
+                "stream_queue": asyncio.Queue(),
+            }
+        }
 
 
 @pytest.fixture
