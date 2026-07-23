@@ -84,9 +84,9 @@ jobs:
           )"
 
           jq -n \
-            --arg instance-id "$FASTAPI_EC2_INSTANCE_ID" \
+            --arg instance_id "$FASTAPI_EC2_INSTANCE_ID" \
             --arg command "$REMOTE_COMMAND" \
-            '{DocumentName: "AWS-RunShellScript", InstanceIds: [$instance-id], Parameters: {commands: [$command]}}' \
+            '{DocumentName: "AWS-RunShellScript", InstanceIds: [$instance_id], Parameters: {commands: [$command]}}' \
             > ssm-command.json
 
           COMMAND_ID="$(aws ssm send-command \
