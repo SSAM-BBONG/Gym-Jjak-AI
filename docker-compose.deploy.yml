@@ -1,0 +1,15 @@
+services:
+  fastapi:
+    image: ${FASTAPI_IMAGE:?FASTAPI_IMAGE is required}
+    container_name: gymjjak-fastapi
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      # 컨테이너 교체 후에도 Chroma 인덱스를 유지하는 영속 볼륨
+      - gymjjak-chroma-data:/app/data/indexes/chroma
+
+volumes:
+  gymjjak-chroma-data:

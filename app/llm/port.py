@@ -1,1 +1,51 @@
-# LLM 호출 인터페이스 (Protocol) - 여기만 클린 아키텍처식 포트
+from typing import Any, AsyncIterator, Callable, Protocol, TypeAlias, TypeVar
+
+from pydantic import BaseModel
+
+from app.llm.models import LLMMessage, LLMResponse, LLMStreamChunk
+
+StructuredOutput = TypeVar("StructuredOutput", bound=BaseModel)
+ToolDefinition: TypeAlias = dict[str, Any] | Callable[..., Any]
+
+
+class LLMPort(Protocol):
+    """공통 LLM 호출 인터페이스. Gemini를 1회 호출하고 공통 응답으로 변환하는 역할까지만 담당한다.
+    Function Calling 반복, RAG 검색, 프롬프트 구성 등 오케스트레이션은 각 도메인(chain.py)이 담당한다."""
+
+    async def generate(
+        self,
+        messages: list[LLMMessage],
+        tools: list[ToolDefinition] | None = None,
+    ) -> LLMResponse:
+        """대화 메시지 목록으로 1회 호출한다. tools가 있으면 Function Calling을 시도한다."""
+        ...
+
+    async def stream(
+        self,
+        messages: list[LLMMessage],
+        tools: list[ToolDefinition] | None = None,
+    ) -> AsyncIterator[LLMStreamChunk]:
+        """대화 메시지 목록으로 1회 호출하되, 텍스트를 토큰 단위로 흘려보낸다.
+        마지막에 tool_calls까지 포함한 전체 응답을 담은 청크를 낸다."""
+        ...
+
+    async def generate_structured_image(
+        self,
+        *,
+        prompt: str,
+        image_bytes: bytes,
+        mime_type: str,
+        output_schema: type[StructuredOutput],
+    ) -> StructuredOutput:
+        """이미지 1장과 프롬프트로 JSON Schema 구조화 출력을 받는다(diet 식단 분석용)."""
+        ...
+
+    async def generate_structured(
+        self,
+        *,
+        prompt: str,
+        output_schema: type[StructuredOutput],
+    ) -> StructuredOutput:
+        """이미지 없이 텍스트 프롬프트만으로 JSON Schema 구조화 출력을 받는다.
+        챗봇 루틴 추천(RoutineResult) 등 이미지가 없는 구조화 응답에 사용한다."""
+        ...

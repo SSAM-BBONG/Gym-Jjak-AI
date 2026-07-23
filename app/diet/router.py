@@ -1,1 +1,21 @@
-# 식단 분석 엔드포인트 (구독자: 이미지 기반 AI 분석, 비구독자: 이 도메인 미사용)
+from fastapi import APIRouter, Depends
+
+from app.core.security import verify_internal_api_key
+from app.diet.dependencies import get_diet_service
+from app.diet.schemas import DietAnalysisRequest, DietAnalysisResponse
+from app.diet.service import DietService
+
+
+router = APIRouter(prefix="/api/v1/meals", tags=["diet"])
+
+
+@router.post(
+    "/analyze",
+    response_model=DietAnalysisResponse,
+    dependencies=[Depends(verify_internal_api_key)],
+)
+async def analyze_meal(
+    request: DietAnalysisRequest,
+    service: DietService = Depends(get_diet_service),
+) -> DietAnalysisResponse:
+    return await service.analyze(request)
