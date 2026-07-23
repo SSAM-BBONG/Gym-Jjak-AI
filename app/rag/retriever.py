@@ -6,17 +6,17 @@ from google.genai import types
 from app.core.settings import settings
 from app.rag.vector_store import get_vector_store
 
-EMBEDDING_MODEL = "gemini-embedding-001"
-EMBEDDING_DIM = 768
 SIMILARITY_THRESHOLD = 0.35
 
 
 def _embed_query(text: str) -> list[float]:
-    client = genai.Client(api_key=settings.gemini_api_key)
+    client = genai.Client(api_key=settings.gemini_api_key.get_secret_value())
     result = client.models.embed_content(
-        model=EMBEDDING_MODEL,
+        model=settings.gemini_embedding_model,
         contents=[text],
-        config=types.EmbedContentConfig(task_type="RETRIEVAL_QUERY", output_dimensionality=EMBEDDING_DIM),
+        config=types.EmbedContentConfig(
+            task_type="RETRIEVAL_QUERY", output_dimensionality=settings.embedding_dimensions
+        ),
     )
     return result.embeddings[0].values
 

@@ -1,17 +1,27 @@
-"""ChromaDB 연결/설정. 개발환경은 PersistentClient(로컬 디스크)를 사용한다.
-배포환경(HttpClient 전환)은 이 파일과 설정만 바꾸면 되도록 격리한다."""
+"""ChromaDB 연결/설정. chroma_mode 설정값에 따라 개발환경(PersistentClient, 로컬 디스크)과
+배포환경(HttpClient)을 전환한다 — 이 파일 밖은 전혀 안 바꿔도 된다."""
 
 from functools import lru_cache
 
 import chromadb
 
-PERSIST_DIRECTORY = "data/indexes/chroma"
-COLLECTION_NAME = "pt_recommendation_documents"
+from app.core.settings import settings
+
+COLLECTION_NAME = "documents"
 
 
 class VectorStore:
-    def __init__(self, persist_directory: str = PERSIST_DIRECTORY) -> None:
-        self._client = chromadb.PersistentClient(path=persist_directory)
+    def __init__(self) -> None:
+        if settings.chroma_mode == "http":
+            self._client = chromadb.HttpClient(
+                host=settings.chroma_host,
+                port=settings.chroma_port,
+                settings=chromadb.Settings(
+                    chroma_query_request_timeout_seconds=settings.chroma_timeout_seconds
+                ),
+            )
+        else:
+            self._client = chromadb.PersistentClient(path=str(settings.chroma_persist_directory))
         self._collection = self._client.get_or_create_collection(
             name=COLLECTION_NAME,
             metadata={"hnsw:space": "cosine"},

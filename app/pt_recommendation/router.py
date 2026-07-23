@@ -2,10 +2,9 @@ import secrets
 
 from fastapi import APIRouter, Depends, Header
 
-from app.core.dependencies import get_llm_client
 from app.core.exceptions import internal_auth_failed
 from app.core.settings import settings
-from app.llm.port import LLMPort
+from app.pt_recommendation.dependencies import get_pt_recommendation_service
 from app.pt_recommendation.schemas import PtRecommendationRequest, PtRecommendationResponse
 from app.pt_recommendation.service import PtRecommendationService
 
@@ -17,12 +16,6 @@ def verify_internal_api_key(
 ) -> None:
     if not api_key or not secrets.compare_digest(api_key, settings.internal_api_key):
         raise internal_auth_failed()
-
-
-def get_pt_recommendation_service(
-    llm: LLMPort = Depends(get_llm_client),
-) -> PtRecommendationService:
-    return PtRecommendationService(llm=llm)
 
 
 @router.post(

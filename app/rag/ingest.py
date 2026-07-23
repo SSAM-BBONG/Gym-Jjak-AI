@@ -18,8 +18,6 @@ from app.rag.vector_store import get_vector_store
 
 DOCUMENTS_DIR = Path("data/documents")
 STATE_FILE = Path("data/indexes/.ingest_state.json")
-EMBEDDING_MODEL = "gemini-embedding-001"
-EMBEDDING_DIM = 768
 
 _FRONTMATTER_PATTERN = re.compile(r"^---\n(.*?)\n---\n(.*)$", re.DOTALL)
 
@@ -51,11 +49,13 @@ def _split_sections(body: str) -> list[tuple[str, str]]:
 
 
 def _embed(texts: list[str], task_type: str) -> list[list[float]]:
-    client = genai.Client(api_key=settings.gemini_api_key)
+    client = genai.Client(api_key=settings.gemini_api_key.get_secret_value())
     result = client.models.embed_content(
-        model=EMBEDDING_MODEL,
+        model=settings.gemini_embedding_model,
         contents=texts,
-        config=types.EmbedContentConfig(task_type=task_type, output_dimensionality=EMBEDDING_DIM),
+        config=types.EmbedContentConfig(
+            task_type=task_type, output_dimensionality=settings.embedding_dimensions
+        ),
     )
     return [embedding.values for embedding in result.embeddings]
 

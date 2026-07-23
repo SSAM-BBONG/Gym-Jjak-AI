@@ -35,7 +35,8 @@ Spring 팀원이 진행 중인 리팩터링(`AiServiceConfig` 공용 빈 + 도�
 | `app/llm/` | 공용(연결) + diet 과도기 | §4 참조 | 연결 팩토리는 공용, 계약은 도메인 |
 | `main.py` (`create_app`) | 공용 | 합의 | 라우터 등록·전역 예외 핸들러 |
 | `app/common/` | 공용 경계 | 소유자 표기 | `user_data_client` 등 조회 Port. 챗봇이 신설·소유 |
-| `app/rag/`, `app/routine/` | 챗봇 기능 | 챗봇 | 챗봇 전용, 타 도메인 미사용 |
+| `app/rag/` | 공용(연결) | §4 원칙과 동일 | 벡터스토어 연결·임베딩·`category` 검색은 도메인 무관 동일. 도메인은 `data/documents/`의 문서·`category` 값만 소유(`.docs/PT_RECOMMENDATION_REFACTOR_PROPOSAL.md` 제안 1, 합의됨) |
+| `app/routine/` | 챗봇 기능 | 챗봇 | 챗봇 전용, 타 도메인 미사용 |
 | `app/diet/` | diet | diet | diet 도메인 전용 |
 | `app/chatbot/` | chatbot | chatbot | 챗봇 도메인 전용 |
 
@@ -121,3 +122,4 @@ Spring 어댑터와 FastAPI 라우터/어댑터가 1:1로 대응되어, 양쪽 �
 | 날짜 | 변경 내용 |
 | --- | --- |
 | 2026-07-22 | diet 합류 이후 공용 모듈 소유권 규칙 초안 작성 |
+| 2026-07-22 | `app/rag/`를 챗봇 전용에서 공용(연결)으로 재분류 — pt_recommendation이 먼저 구현·검증한 벡터스토어/ingest/retriever를 챗봇도 그대로 재사용하기로 합의(`app/routine/`은 챗봇 전용 유지) |
