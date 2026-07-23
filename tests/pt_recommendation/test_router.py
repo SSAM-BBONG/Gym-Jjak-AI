@@ -2,10 +2,10 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 import app.pt_recommendation.service as service_module
-from app.core.dependencies import get_llm_client
 from app.core.settings import settings
 from app.llm.errors import LLMNetworkError
 from app.llm.models import LLMResponse
+from app.pt_recommendation.dependencies import get_pt_recommendation_llm_client
 from main import app
 from tests.fakes.llm import FakeLLMPort
 
@@ -54,7 +54,7 @@ def _valid_response_text() -> str:
 
 async def test_create_pt_recommendation_success(monkeypatch):
     _patch_retriever(monkeypatch)
-    app.dependency_overrides[get_llm_client] = lambda: FakeLLMPort(
+    app.dependency_overrides[get_pt_recommendation_llm_client] = lambda: FakeLLMPort(
         response=LLMResponse(text=_valid_response_text())
     )
 
@@ -68,7 +68,7 @@ async def test_create_pt_recommendation_success(monkeypatch):
 
 async def test_create_pt_recommendation_rejects_missing_auth_header(monkeypatch):
     _patch_retriever(monkeypatch)
-    app.dependency_overrides[get_llm_client] = lambda: FakeLLMPort()
+    app.dependency_overrides[get_pt_recommendation_llm_client] = lambda: FakeLLMPort()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post("/api/v1/pt-recommendations", json=_PAYLOAD)
@@ -83,7 +83,7 @@ async def test_create_pt_recommendation_llm_network_error_returns_common_format(
         async def generate(self, messages, tools=None):
             raise LLMNetworkError("연결 실패")
 
-    app.dependency_overrides[get_llm_client] = lambda: FailingLLMPort()
+    app.dependency_overrides[get_pt_recommendation_llm_client] = lambda: FailingLLMPort()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post("/api/v1/pt-recommendations", json=_PAYLOAD, headers=_HEADERS)
@@ -96,7 +96,7 @@ async def test_create_pt_recommendation_llm_network_error_returns_common_format(
 
 async def test_create_pt_recommendation_rejects_invalid_body(monkeypatch):
     _patch_retriever(monkeypatch)
-    app.dependency_overrides[get_llm_client] = lambda: FakeLLMPort()
+    app.dependency_overrides[get_pt_recommendation_llm_client] = lambda: FakeLLMPort()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post(
@@ -110,7 +110,7 @@ async def test_create_pt_recommendation_rejects_invalid_body(monkeypatch):
 
 async def test_create_pt_recommendation_rejects_empty_candidates(monkeypatch):
     _patch_retriever(monkeypatch)
-    app.dependency_overrides[get_llm_client] = lambda: FakeLLMPort()
+    app.dependency_overrides[get_pt_recommendation_llm_client] = lambda: FakeLLMPort()
 
     payload = {**_PAYLOAD, "candidates": []}
 
@@ -122,7 +122,7 @@ async def test_create_pt_recommendation_rejects_empty_candidates(monkeypatch):
 
 async def test_create_pt_recommendation_rejects_duplicate_candidate_course_ids(monkeypatch):
     _patch_retriever(monkeypatch)
-    app.dependency_overrides[get_llm_client] = lambda: FakeLLMPort()
+    app.dependency_overrides[get_pt_recommendation_llm_client] = lambda: FakeLLMPort()
 
     payload = {**_PAYLOAD, "candidates": [_PAYLOAD["candidates"][0], _PAYLOAD["candidates"][0]]}
 

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 
-from app.core.dependencies import get_diet_service
 from app.core.security import verify_internal_api_key
+from app.diet.dependencies import get_diet_service
 from app.diet.schemas import DietAnalysisRequest, DietAnalysisResponse
 from app.diet.service import DietService
 

@@ -82,7 +82,8 @@ class GeminiAdapter:
     """LLMPort 구현체. Gemini 모델 1회 호출과 오류 변환만 담당한다.
     LangChain은 이 파일 안에서만 사용한다."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, temperature: float = 0.1) -> None:
+        self._temperature = temperature
         self._model: ChatGoogleGenerativeAI | None = None
 
     def _get_model(self) -> ChatGoogleGenerativeAI:
@@ -93,7 +94,7 @@ class GeminiAdapter:
         self._model = ChatGoogleGenerativeAI(
             model=settings.gemini_model,
             google_api_key=settings.gemini_api_key,
-            temperature=0.1,
+            temperature=self._temperature,
             max_retries=0,
         )
         return self._model

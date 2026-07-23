@@ -1,7 +1,7 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.core.dependencies import get_llm_client
+from app.trainer_report.dependencies import get_trainer_report_llm_client
 from app.llm.errors import LLMNetworkError
 from app.llm.models import LLMResponse
 from main import app
@@ -33,7 +33,7 @@ def _clear_overrides():
 
 
 async def test_create_trainer_report_success():
-    app.dependency_overrides[get_llm_client] = lambda: FakeLLMPort(
+    app.dependency_overrides[get_trainer_report_llm_client] = lambda: FakeLLMPort(
         response=LLMResponse(text="생성된 리포트")
     )
 
@@ -49,7 +49,7 @@ async def test_create_trainer_report_llm_network_error_returns_common_error_form
         async def generate(self, messages, tools=None):
             raise LLMNetworkError("연결 실패")
 
-    app.dependency_overrides[get_llm_client] = lambda: FailingLLMPort()
+    app.dependency_overrides[get_trainer_report_llm_client] = lambda: FailingLLMPort()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.post("/trainer-report", json=_PAYLOAD)

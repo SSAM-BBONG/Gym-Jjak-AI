@@ -12,14 +12,24 @@ from app.chatbot.service import ChatbotService
 from app.common.conversation import ConversationProvider, InMemoryConversationProvider
 from app.common.dev_user_data import LocalDevUserDataClient
 from app.common.user_data_client import InMemoryUserDataClient, UserDataClient
-from app.core.dependencies import get_llm_client
 from app.core.settings import get_settings
+from app.llm.gemini_adapter import GeminiAdapter
 from app.llm.port import LLMPort
 from app.rag.embeddings import GeminiEmbeddings
 from app.rag.retriever import ChromaRetriever, RetrieverPort
 from app.rag.vector_store import create_chroma_client, get_or_create_collection
 from app.routine.analyzer import WorkoutAnalyzer
 from app.routine.service import RoutineService
+
+
+@lru_cache
+def get_chatbot_llm_client() -> LLMPort:
+    return GeminiAdapter(temperature=get_settings().chatbot_llm_temperature)
+
+
+@lru_cache
+def get_routine_llm_client() -> LLMPort:
+    return GeminiAdapter(temperature=get_settings().routine_llm_temperature)
 
 
 @lru_cache
@@ -49,7 +59,7 @@ def get_retriever() -> RetrieverPort:
 
 @lru_cache
 def get_routine_service() -> RoutineService:
-    llm: LLMPort = get_llm_client()
+    llm: LLMPort = get_routine_llm_client()
     return RoutineService(
         user_data=get_user_data_client(),
         analyzer=WorkoutAnalyzer(),
@@ -61,7 +71,7 @@ def get_routine_service() -> RoutineService:
 @lru_cache
 def get_chatbot_deps() -> ChatbotDeps:
     return ChatbotDeps(
-        llm=get_llm_client(),
+        llm=get_chatbot_llm_client(),
         retriever=get_retriever(),
         user_data=get_user_data_client(),
         routine_service=get_routine_service(),
