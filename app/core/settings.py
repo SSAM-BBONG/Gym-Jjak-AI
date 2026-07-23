@@ -26,10 +26,10 @@ class Settings(BaseSettings):
     embedding_dimensions: int = 768
     gemini_timeout_seconds: float = Field(default=20.0, gt=0, le=60)
     diet_llm_temperature: float = Field(default=0.1, ge=0, le=2)
-    chatbot_llm_temperature: float = Field(default=0.5, ge=0, le=2)
+    chatbot_llm_temperature: float = Field(default=0.7, ge=0, le=2)
     routine_llm_temperature: float = Field(default=0.2, ge=0, le=2)
     pt_recommendation_llm_temperature: float = Field(default=0.2, ge=0, le=2)
-    trainer_report_llm_temperature: float = Field(default=0.3, ge=0, le=2)
+    trainer_report_llm_temperature: float = Field(default=0.1, ge=0, le=2)
 
     spring_base_url: AnyHttpUrl = AnyHttpUrl("http://localhost:8080")
     # diet/router.py가 secrets.compare_digest(str, str)로 직접 비교하므로
