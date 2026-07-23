@@ -5,6 +5,7 @@ from app.core.error_handlers import register_exception_handlers
 from app.core.logging import setup_logging
 from app.core.middleware import request_context_middleware
 from app.diet.router import router as diet_router
+from app.pt_recommendation.router import router as pt_recommendation_router
 from app.routine.router import router as routine_router
 from app.trainer_report.router import router as trainer_report_router
 
@@ -29,6 +30,7 @@ def create_app() -> FastAPI:
         return {"message": "Hello, GymJjak AI!"}
 
     fastapi_app.include_router(diet_router)
+    fastapi_app.include_router(pt_recommendation_router)
     fastapi_app.include_router(trainer_report_router)
     fastapi_app.include_router(chatbot_router)
     fastapi_app.include_router(routine_router)
