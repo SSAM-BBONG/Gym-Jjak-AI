@@ -23,11 +23,3 @@ def food_not_detected() -> AppError:
 
 def invalid_analysis_result() -> AppError:
     return AppError(502, "DIET_INVALID_ANALYSIS_RESULT", "AI 식단 분석 결과가 올바르지 않습니다.")
-
-
-def llm_timeout() -> AppError:
-    return AppError(504, "LLM_TIMEOUT", "AI 분석 응답 시간이 초과되었습니다.", True)
-
-
-def llm_error() -> AppError:
-    return AppError(502, "LLM_NETWORK_ERROR", "AI 식단 분석에 실패했습니다.", True)

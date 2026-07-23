@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from app.core.dependencies import get_diet_service, get_llm_client
-from app.llm.errors import LLMNetworkError
+from app.llm.errors import LLMInvalidResponseError, LLMNetworkError
 from main import app
 
 
@@ -74,6 +74,39 @@ async def test_llm_error_contract() -> None:
     finally:
         app.dependency_overrides.clear()
     _assert_common_error_contract(response, 503, "LLM_NETWORK_ERROR")
+    assert response.json()["retryable"] is True
+
+
+async def test_llm_invalid_response_is_not_retryable() -> None:
+    """실제로 겪은 버그: 요청 자체가 잘못된 경우(예: thought_signature 누락으로 인한
+    400 INVALID_ARGUMENT)까지 retryable=True로 나가면 사용자가 똑같이 실패할 재시도를
+    반복하게 된다. LLM_INVALID_RESPONSE는 항상 retryable=False여야 한다."""
+
+    class FailingLLMPort:
+        async def generate(self, messages, tools=None):
+            raise LLMInvalidResponseError("thought_signature 누락")
+
+    app.dependency_overrides[get_llm_client] = lambda: FailingLLMPort()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post(
+                "/trainer-report",
+                json={
+                    "trainer_id": 1,
+                    "market_trends": {
+                        "popular_body_parts": [],
+                        "price_distribution": [],
+                        "price_per_session_distribution": [],
+                        "session_count_distribution": [],
+                        "location_distribution": [],
+                    },
+                    "my_pt_courses": [],
+                },
+            )
+    finally:
+        app.dependency_overrides.clear()
+    _assert_common_error_contract(response, 502, "LLM_INVALID_RESPONSE")
+    assert response.json()["retryable"] is False
 
 
 @pytest.fixture

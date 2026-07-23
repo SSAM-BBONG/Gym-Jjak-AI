@@ -1,11 +1,45 @@
 # ⚠️ Gym-Jjak AI Server Error Handling
 
 - 작성일: 2026-07-19
-- 최종 수정일: 2026-07-19
-- 상태: 오류 처리 정책 확정
+- 최종 수정일: 2026-07-22
+- 상태: 오류 처리 정책 확정, 챗봇/루틴 도메인 구현 완료
 - 문서 규칙: Markdown 파일명은 대문자로 작성하고, 주요 제목에는 의미에 맞는 이모지를 사용한다.
 
 > 이 문서는 Gym-Jjak AI 서버의 오류 분류, 사용자 안내, 재시도, Timeout, 로그 정책을 정의한다. 정책을 변경할 때는 관련 내용과 `최종 수정일`을 함께 갱신한다.
+
+## 🔧 실제 구현과의 차이 (2026-07-22 갱신)
+
+아래 "🧭 오류 분류" 표의 코드는 최초 설계안이며, 실제로는 `AppError` 하위 클래스로 다음 코드를 구현했다(공통 응답 형식 `{code, message, request_id, retryable}`은 설계와 동일).
+
+| 실제 오류 코드 | 상황 | HTTP | 위치 |
+| --- | --- | --- | --- |
+| `INTERNAL_AUTH_FAILED` | X-Internal-Api-Key 누락/불일치 | 401 | `app/core/exceptions.py`, `app/common/auth.py` |
+| `REQUEST_VALIDATION_ERROR` | Pydantic 요청 검증 실패 | 422 | `app/core/error_handlers.py` |
+| `ROLE_NOT_ALLOWED` | role이 기대한 값(USER/TRAINER)이 아님 | 403 | `app/routine/exceptions.py` (챗봇도 재사용) |
+| `CHATBOT_SUBSCRIPTION_REQUIRED` | 활성 구독 없이 챗봇/루틴 요청 | 403 | `app/routine/exceptions.py` |
+| `TRAINER_SUBJECT_ACCESS_DENIED` | 트레이너-회원 담당 관계 없음 | 403 | `app/common/exceptions.py` |
+| `LLM_NETWORK_ERROR` | Gemini 연결/Timeout | 503 | `app/llm/errors.py` |
+| `LLM_RATE_LIMITED` | Gemini 429 | 503 | `app/llm/errors.py` |
+| `LLM_INVALID_RESPONSE` | 구조화 출력 검증 실패 | 502 | `app/llm/errors.py` |
+| `LLM_CALL_LIMIT_EXCEEDED` | 요청당 LLM 호출 6회 초과 | 503 | `app/chatbot/exceptions.py` |
+| `CHATBOT_REQUEST_TIMEOUT` | 요청 처리 60초 초과 | 504 | `app/chatbot/exceptions.py` |
+| `INTERNAL_SERVER_ERROR` | 분류되지 않은 예외 | 500 | `app/core/error_handlers.py` |
+
+설계안의 `ACCESS_DENIED`, `SPRING_CLIENT_ERROR`, `SPRING_UNAVAILABLE`, `PERSONAL_DATA_PARTIAL/UNAVAILABLE`, `RAG_RESULT_NOT_FOUND`, `RAG_UNAVAILABLE`, `ROUTINE_SAFETY_INFO_REQUIRED`는 **아직 구현되지 않았다** — Spring 연동(Deferred Integration Plan)이 붙기 전까지는 `InMemoryUserDataClient`가 항상 빈 값을 반환하므로 "일부 실패"라는 상태 자체가 발생하지 않는다. `PERSONAL_DATA_PARTIAL`은 `RoutineResult.status="LIMITED"` + `missing_data` 필드로, `ROUTINE_SAFETY_INFO_REQUIRED`는 `RoutineResult.status="BLOCKED"` + `cautions` 필드로 각각 200 응답 안에서 표현하는 방식으로 대체 구현했다.
+
+### 🌊 챗봇 스트리밍 엔드포인트 예외 (2026-07-22 추가)
+
+`POST /api/v1/chatbot/messages`가 SSE(`text/event-stream`)로 바뀌면서, 이 엔드포인트만 아래 표의 일반 원칙과 다르게 동작한다(다른 모든 엔드포인트는 기존 HTTP status 기반 오류 계약을 그대로 따른다).
+
+| 구분 | 일반 엔드포인트 | 챗봇 스트리밍 엔드포인트 |
+| --- | --- | --- |
+| 인증 실패(`INTERNAL_AUTH_FAILED`), 요청 검증 실패(`REQUEST_VALIDATION_ERROR`) | HTTP status로 응답 | **동일** — 스트림을 열기 전에 발생하므로 그대로 HTTP status |
+| `ROLE_NOT_ALLOWED`, `CHATBOT_SUBSCRIPTION_REQUIRED`, `LLM_CALL_LIMIT_EXCEEDED`, `CHATBOT_REQUEST_TIMEOUT`, `LLM_NETWORK_ERROR` 등 | HTTP status(403/503/504 등) + JSON body | **SSE `event: error`** — 스트림이 이미 200으로 열린 뒤라 HTTP status를 바꿀 수 없음. body 필드(`code`/`message`/`request_id`/`retryable`)는 동일하게 유지 |
+| 대화 이력(`conversation_provider`) 조회 실패 등 미분류 예외 | 500 `INTERNAL_SERVER_ERROR` | `error` 이벤트로 `INTERNAL_ERROR` (서버 로그에는 `logger.exception`으로 스택트레이스 기록) |
+
+- `{code, message, request_id, retryable}` 공통 응답 필드 계약은 그대로 유지된다 — 전달 방식(HTTP status vs. SSE 이벤트)만 다르다.
+- Spring은 이 엔드포인트에 한해 HTTP status가 아니라 이벤트 body의 `code` 필드로 오류 종류를 분기해야 한다.
+- 이 예외는 Spring이 프론트와 이미 열어둔 웹소켓으로 델타를 릴레이하기 위한 설계 단순화이며, 자세한 배경은 `docs/superpowers/specs/2026-07-22-chatbot-streaming-design.md`를 참고한다.
 
 # 🎯 오류 처리 목표
 
@@ -142,7 +176,7 @@ Gemini 외의 읽기 전용 내부 조회는 사용자 데이터 정합성과 �
 | --- | --- | --- |
 | Gemini API | 실패한 단계 0회 | 정상 Function Calling 후속 호출은 허용하되 실패한 호출은 재시도하지 않음 |
 | 구조화 응답 재생성 | 0회 | Pydantic 실패 시 즉시 오류 처리 |
-| Spring 읽기 API | 최대 1회 | 연결 오류, Timeout, 502, 503 |
+| Spring 읽기 API | 최대 1회 | 연결 오류, Timeout, 모든 5xx(500/502/503/504) |
 | Spring 4xx | 0회 | 잘못된 요청과 권한 오류는 재시도하지 않음 |
 | Chroma 검색 | 0회 | 오류를 즉시 RAG 오류로 변환 |
 | 동일 Tool 반복 요청 | 0회 | 같은 Tool과 인자 반복 시 중단 |
@@ -278,3 +312,6 @@ Gemini 실패
 | 날짜 | 변경 내용 |
 | --- | --- |
 | 2026-07-19 | Gemini 무재시도 원칙을 포함한 초기 오류 처리 정책 작성 |
+| 2026-07-22 | 실제 구현된 오류 코드 표 반영, 미구현 코드(Spring 연동 의존)와 대체 구현 방식 명시 |
+| 2026-07-22 | 챗봇 스트리밍 엔드포인트 전환에 맞춰 "🌊 챗봇 스트리밍 엔드포인트 예외" 절 추가 — `POST /api/v1/chatbot/messages`만 모든 실패를 HTTP status 대신 SSE `error` 이벤트로 전달하는 예외를 명시 |
+| 2026-07-22 | Spring 읽기 API 재시도 조건을 "502·503"에서 "모든 5xx(500/502/503/504)"로 정합 — Deferred Integration Plan의 "5xx/timeout 1회 재시도" 및 신규 계약 문서 `.docs/SPRING_INTEGRATION.md`와 일치(전 엔드포인트가 idempotent GET) |

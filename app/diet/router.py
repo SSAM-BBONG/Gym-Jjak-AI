@@ -1,22 +1,12 @@
-import secrets
-
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends
 
 from app.core.dependencies import get_diet_service
-from app.core.exceptions import internal_auth_failed
-from app.core.settings import settings
+from app.core.security import verify_internal_api_key
 from app.diet.schemas import DietAnalysisRequest, DietAnalysisResponse
 from app.diet.service import DietService
 
 
 router = APIRouter(prefix="/api/v1/meals", tags=["diet"])
-
-
-def verify_internal_api_key(
-    api_key: str | None = Header(default=None, alias="X-Internal-Api-Key"),
-) -> None:
-    if not api_key or not secrets.compare_digest(api_key, settings.internal_api_key):
-        raise internal_auth_failed()
 
 
 @router.post(

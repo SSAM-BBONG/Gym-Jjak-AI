@@ -7,6 +7,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    """앱 전체 환경설정 단일 출처. `.env`에서 값을 읽고, 없는 값은 아래 기본값을 쓴다."""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -47,6 +49,7 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
+    """Settings를 프로세스당 한 번만 생성해 캐싱한다. 챗봇 코드는 이 함수만 사용한다."""
     return Settings()
 
 

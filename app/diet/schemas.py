@@ -73,10 +73,3 @@ class DietAnalysisResponse(BaseModel):
     @field_serializer("carbohydrate", "protein", "fat", "confidence", when_used="json")
     def serialize_decimal(self, value: Decimal) -> float:
         return float(value)
-
-
-class ErrorResponse(BaseModel):
-    code: str
-    message: str
-    request_id: str
-    retryable: bool
