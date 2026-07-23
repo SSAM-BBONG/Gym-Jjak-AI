@@ -7,7 +7,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from app.core.dependencies import get_diet_service, get_llm_client
+from app.trainer_report.dependencies import get_trainer_report_llm_client
 from app.llm.errors import LLMInvalidResponseError, LLMNetworkError
 from main import app
 
@@ -54,7 +54,7 @@ async def test_llm_error_contract() -> None:
         async def generate(self, messages, tools=None):
             raise LLMNetworkError("연결 실패")
 
-    app.dependency_overrides[get_llm_client] = lambda: FailingLLMPort()
+    app.dependency_overrides[get_trainer_report_llm_client] = lambda: FailingLLMPort()
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(
@@ -86,7 +86,7 @@ async def test_llm_invalid_response_is_not_retryable() -> None:
         async def generate(self, messages, tools=None):
             raise LLMInvalidResponseError("thought_signature 누락")
 
-    app.dependency_overrides[get_llm_client] = lambda: FailingLLMPort()
+    app.dependency_overrides[get_trainer_report_llm_client] = lambda: FailingLLMPort()
     try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post(

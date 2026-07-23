@@ -2,7 +2,7 @@ from decimal import Decimal
 
 from fastapi.testclient import TestClient
 
-from app.core.dependencies import get_diet_service
+from app.diet.dependencies import get_diet_service
 from app.diet.schemas import DietAnalysisResponse
 from main import app
 

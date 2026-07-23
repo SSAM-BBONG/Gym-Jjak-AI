@@ -1,16 +1,10 @@
 from fastapi import APIRouter, Depends
 
-from app.core.dependencies import get_llm_client
-from app.llm.port import LLMPort
+from app.trainer_report.dependencies import get_trainer_report_service
 from app.trainer_report.schemas import TrainerReportRequest, TrainerReportResponse
 from app.trainer_report.service import TrainerReportService
 
 router = APIRouter(prefix="/trainer-report", tags=["trainer-report"])
-
-
-def get_trainer_report_service(llm: LLMPort = Depends(get_llm_client)) -> TrainerReportService:
-    return TrainerReportService(llm=llm)
-
 
 @router.post("", response_model=TrainerReportResponse)
 async def create_trainer_report(

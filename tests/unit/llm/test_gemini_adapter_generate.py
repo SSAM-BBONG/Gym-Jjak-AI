@@ -31,6 +31,12 @@ def _adapter_with_base_model(ainvoke_result=None, ainvoke_side_effect=None) -> G
     return adapter
 
 
+def test_adapter_keeps_domain_temperature() -> None:
+    adapter = GeminiAdapter(temperature=0.35)
+
+    assert adapter._temperature == 0.35
+
+
 async def test_generate_extracts_thought_signature_into_tool_call() -> None:
     response = _FakeResponse(
         tool_calls=[{"name": "get_payment_history", "args": {}, "id": "call-1"}],
