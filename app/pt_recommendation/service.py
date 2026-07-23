@@ -1,7 +1,7 @@
 from app.llm.port import LLMPort
 from app.pt_recommendation.chain import recommend_pt_courses
+from app.pt_recommendation.rag import retriever
 from app.pt_recommendation.schemas import PtRecommendationRequest, PtRecommendationResponse
-from app.rag import retriever
 
 
 class PtRecommendationService:

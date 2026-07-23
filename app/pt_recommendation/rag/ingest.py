@@ -1,8 +1,9 @@
-"""data/documents/의 마크다운 원본을 청크로 나누고 임베딩해서 벡터DB에 적재하는
-배치 스크립트. 서버 실행과 완전히 분리되어 있으며 수동으로 실행한다:
-    python -m app.rag.ingest
+"""data/documents/pt_recommendation/의 마크다운 원본을 청크로 나누고 임베딩해서 벡터DB에
+적재하는 배치 스크립트. 서버 실행과 완전히 분리되어 있으며 수동으로 실행한다:
+    python -m app.pt_recommendation.rag.ingest
 
-문서 해시를 저장해두고, 변경된 파일만 다시 적재한다(증분 적재)."""
+문서 해시를 저장해두고, 변경된 파일만 다시 적재한다(증분 적재).
+PT추천 전용(app/pt_recommendation) — 공용 app/rag/는 챗봇 도메인 소유라 별도로 둔다."""
 
 import hashlib
 import json
@@ -14,10 +15,10 @@ from google import genai
 from google.genai import types
 
 from app.core.settings import settings
-from app.rag.vector_store import get_vector_store
+from app.pt_recommendation.rag.vector_store import get_vector_store
 
-DOCUMENTS_DIR = Path("data/documents")
-STATE_FILE = Path("data/indexes/.ingest_state.json")
+DOCUMENTS_DIR = Path("data/documents/pt_recommendation")
+STATE_FILE = Path("data/indexes/.pt_recommendation_ingest_state.json")
 
 _FRONTMATTER_PATTERN = re.compile(r"^---\n(.*?)\n---\n(.*)$", re.DOTALL)
 

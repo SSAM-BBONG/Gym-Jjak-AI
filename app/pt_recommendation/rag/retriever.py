@@ -1,10 +1,11 @@
-"""질문 + 카테고리 필터로 관련 문서 조각을 코사인 유사도 순으로 반환한다."""
+"""질문 + 카테고리 필터로 관련 문서 조각을 코사인 유사도 순으로 반환한다.
+PT추천 전용(app/pt_recommendation) — 공용 app/rag/는 챗봇 도메인 소유라 별도로 둔다."""
 
 from google import genai
 from google.genai import types
 
 from app.core.settings import settings
-from app.rag.vector_store import get_vector_store
+from app.pt_recommendation.rag.vector_store import get_vector_store
 
 SIMILARITY_THRESHOLD = 0.35
 
