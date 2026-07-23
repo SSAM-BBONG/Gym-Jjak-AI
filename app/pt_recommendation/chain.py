@@ -1,6 +1,6 @@
 import json
 
-from pydantic import ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from app.llm.errors import LLMInvalidResponseError
 from app.llm.models import LLMMessage
@@ -19,6 +19,16 @@ _ONSET_LABELS = {
     PainOnset.SUBACUTE: "아급성(회복 중)",
     PainOnset.CHRONIC: "만성(오래된 통증)",
 }
+
+MAX_RECOMMENDATIONS = 3
+
+
+class _RawRecommendation(BaseModel):
+    """LLM 응답 파싱 전용 모델. course_id·reason만 신뢰하고, course_name/trainer_id/
+    trainer_name은 LLM이 준 값을 쓰지 않는다(후보 목록의 정본 값으로 다시 채운다)."""
+
+    course_id: int
+    reason: str = Field(min_length=1, max_length=1000)
 
 
 def _format_candidates(candidates: list[PtCourseCandidate]) -> str:
@@ -58,16 +68,36 @@ def _parse_response(
     text: str, candidates: list[PtCourseCandidate]
 ) -> list[RecommendedPtCourse]:
     """generate_structured가 아직 공용 포트에 없어 프롬프트로 JSON 출력을 강제하고 여기서
-    직접 파싱한다. candidates에 없는 course_id는 LLM이 지어낸 것으로 보고 걸러낸다."""
+    직접 파싱한다. candidates에 없는 course_id는 LLM이 지어낸 것으로 보고 걸러내고,
+    course_name/trainer_id/trainer_name은 LLM이 준 값이 아니라 후보 목록의 정본 값으로
+    다시 채운다(위조·혼동 방지). 중복 course_id는 첫 번째만 남기고, 최대 3개로 제한한다."""
 
-    valid_ids = {c.course_id for c in candidates}
+    candidates_by_id = {c.course_id: c for c in candidates}
     try:
         raw = json.loads(text)
-        recommendations = [RecommendedPtCourse.model_validate(item) for item in raw]
+        raw_recommendations = [_RawRecommendation.model_validate(item) for item in raw]
     except (json.JSONDecodeError, ValidationError, TypeError) as exc:
         raise invalid_recommendation_result() from exc
 
-    recommendations = [r for r in recommendations if r.course_id in valid_ids]
+    recommendations: list[RecommendedPtCourse] = []
+    seen_ids: set[int] = set()
+    for item in raw_recommendations:
+        candidate = candidates_by_id.get(item.course_id)
+        if candidate is None or item.course_id in seen_ids:
+            continue
+        seen_ids.add(item.course_id)
+        recommendations.append(
+            RecommendedPtCourse(
+                course_id=candidate.course_id,
+                course_name=candidate.course_name,
+                trainer_id=candidate.trainer_id,
+                trainer_name=candidate.trainer_name,
+                reason=item.reason,
+            )
+        )
+        if len(recommendations) == MAX_RECOMMENDATIONS:
+            break
+
     if not recommendations:
         raise invalid_recommendation_result()
     return recommendations

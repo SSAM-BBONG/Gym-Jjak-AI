@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from app.core.exceptions import AppError
@@ -182,3 +184,87 @@ async def test_recommend_pt_courses_filters_out_hallucinated_course_id():
             injury_chunks=[],
         )
     assert caught.value.code == "PT_RECOMMENDATION_INVALID_RESULT"
+
+
+async def test_recommend_pt_courses_ignores_llm_provided_course_and_trainer_fields():
+    """course_id가 유효해도 course_name/trainer_id/trainer_name은 LLM 값이 아니라
+    후보 목록의 정본 값으로 채워야 한다(LLM이 다른 코스 정보와 뒤섞어 줘도 방지)."""
+    fake_llm = FakeLLMPort(
+        response=LLMResponse(
+            text='[{"course_id": 101, "course_name": "가짜 이름", '
+            '"trainer_id": 999, "trainer_name": "가짜 트레이너", "reason": "적합합니다."}]'
+        )
+    )
+
+    result = await recommend_pt_courses(
+        llm=fake_llm,
+        candidates=_candidates(),
+        profile=_profile(),
+        has_pain=False,
+        pain_area=None,
+        pain_onset=None,
+        training_chunks=[],
+        injury_chunks=[],
+    )
+
+    assert result[0].course_name == "무릎 재활 집중 코스"
+    assert result[0].trainer_id == 1
+    assert result[0].trainer_name == "김트레이너"
+
+
+async def test_recommend_pt_courses_dedupes_duplicate_course_ids():
+    """같은 course_id가 여러 번 나오면 첫 번째만 남긴다."""
+    fake_llm = FakeLLMPort(
+        response=LLMResponse(
+            text='[{"course_id": 101, "course_name": "무릎 재활 집중 코스", '
+            '"trainer_id": 1, "trainer_name": "김트레이너", "reason": "이유1"},'
+            '{"course_id": 101, "course_name": "무릎 재활 집중 코스", '
+            '"trainer_id": 1, "trainer_name": "김트레이너", "reason": "이유2"}]'
+        )
+    )
+
+    result = await recommend_pt_courses(
+        llm=fake_llm,
+        candidates=_candidates(),
+        profile=_profile(),
+        has_pain=False,
+        pain_area=None,
+        pain_onset=None,
+        training_chunks=[],
+        injury_chunks=[],
+    )
+
+    assert len(result) == 1
+    assert result[0].reason == "이유1"
+
+
+async def test_recommend_pt_courses_caps_at_three_recommendations():
+    """LLM이 규칙(최대 3개)을 무시하고 더 많이 반환해도 코드가 3개로 제한한다."""
+    candidates = _candidates() + [
+        PtCourseCandidate(
+            course_id=303, course_name="코스3", trainer_id=3, trainer_name="트레이너3", bio="설명3"
+        ),
+        PtCourseCandidate(
+            course_id=404, course_name="코스4", trainer_id=4, trainer_name="트레이너4", bio="설명4"
+        ),
+    ]
+    fake_llm = FakeLLMPort(
+        response=LLMResponse(
+            text=json.dumps(
+                [{"course_id": c.course_id, "reason": f"이유{c.course_id}"} for c in candidates]
+            )
+        )
+    )
+
+    result = await recommend_pt_courses(
+        llm=fake_llm,
+        candidates=candidates,
+        profile=_profile(),
+        has_pain=False,
+        pain_area=None,
+        pain_onset=None,
+        training_chunks=[],
+        injury_chunks=[],
+    )
+
+    assert len(result) == 3

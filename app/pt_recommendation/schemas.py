@@ -46,6 +46,14 @@ class PtRecommendationRequest(BaseModel):
             raise ValueError("has_pain=false인 경우 pain_area/pain_onset은 비워야 합니다.")
         return self
 
+    @model_validator(mode="after")
+    def check_no_duplicate_candidates(self) -> "PtRecommendationRequest":
+        # course_id로 후보를 되찾아 정본 값을 채우므로(chain.py), 중복이 있으면 매핑이 모호해진다.
+        course_ids = [c.course_id for c in self.candidates]
+        if len(course_ids) != len(set(course_ids)):
+            raise ValueError("candidates에 중복된 course_id가 있습니다.")
+        return self
+
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
@@ -101,4 +109,4 @@ class RecommendedPtCourse(BaseModel):
 
 
 class PtRecommendationResponse(BaseModel):
-    recommendations: list[RecommendedPtCourse]
+    recommendations: list[RecommendedPtCourse] = Field(max_length=3)

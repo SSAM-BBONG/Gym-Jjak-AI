@@ -76,6 +76,13 @@ def ingest_all() -> None:
     state = _load_state()
     store = get_vector_store()
 
+    current_files = {path.name for path in DOCUMENTS_DIR.glob("*.md")}
+    # 문서 파일 자체가 삭제된 경우, 예전에 적재된 청크와 상태 기록도 함께 지운다.
+    for removed_name in list(state.keys() - current_files):
+        store.delete(where={"source": removed_name})
+        del state[removed_name]
+        print(f"removed: {removed_name} (원본 파일 삭제됨)")
+
     for path in sorted(DOCUMENTS_DIR.glob("*.md")):
         raw_text = path.read_text(encoding="utf-8")
         digest = hashlib.sha256(raw_text.encode("utf-8")).hexdigest()
@@ -90,6 +97,10 @@ def ingest_all() -> None:
         if not sections:
             print(f"skip (no sections): {path.name}")
             continue
+
+        # 섹션 수가 줄어든 경우를 대비해, 같은 source의 기존 청크를 전부 지우고 새로 채운다
+        # (upsert만 하면 더 이상 안 쓰는 예전 청크가 검색 결과에 계속 남는다).
+        store.delete(where={"source": path.name})
 
         texts = [text for _, text in sections]
         embeddings = _embed(texts, task_type="RETRIEVAL_DOCUMENT")

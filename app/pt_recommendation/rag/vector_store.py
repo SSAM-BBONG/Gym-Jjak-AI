@@ -44,6 +44,9 @@ class VectorStore:
             query_embeddings=[query_embedding], n_results=n_results, where=where
         )
 
+    def delete(self, where: dict) -> None:
+        self._collection.delete(where=where)
+
     def count(self) -> int:
         return self._collection.count()
 

@@ -118,3 +118,15 @@ async def test_create_pt_recommendation_rejects_empty_candidates(monkeypatch):
         response = await client.post("/api/v1/pt-recommendations", json=payload, headers=_HEADERS)
 
     assert response.status_code == 422
+
+
+async def test_create_pt_recommendation_rejects_duplicate_candidate_course_ids(monkeypatch):
+    _patch_retriever(monkeypatch)
+    app.dependency_overrides[get_llm_client] = lambda: FakeLLMPort()
+
+    payload = {**_PAYLOAD, "candidates": [_PAYLOAD["candidates"][0], _PAYLOAD["candidates"][0]]}
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/api/v1/pt-recommendations", json=payload, headers=_HEADERS)
+
+    assert response.status_code == 422
