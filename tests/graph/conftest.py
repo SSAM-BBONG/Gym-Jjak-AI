@@ -8,7 +8,7 @@ import pytest
 from app.chatbot.graph import build_chatbot_graph
 from app.chatbot.nodes import ChatbotDeps
 from app.chatbot.state import ChatState
-from app.chatbot.tools import ToolExecutionContext, ToolRegistry
+from app.chatbot.tools import ToolRegistry
 from app.common.models import ActorContext, OnboardingProfile, PtUsageSummary, Role, SubscriptionStatus
 from app.routine.analyzer import WorkoutAnalyzer
 from app.routine.schemas import RoutineDay, RoutineExercise, RoutineResult
@@ -19,6 +19,19 @@ from tests.fakes.retriever import FakeRetriever
 from tests.fakes.user_data import FakeUserDataClient
 
 MEMBER_ID = 10
+
+
+class FakeSpringChatbotToolClient:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, object]] = []
+
+    async def get_latest_inbody(self) -> dict | None:
+        self.calls.append(("get_latest_inbody", None))
+        return None
+
+    async def get_workout_history(self, from_date: date, to_date: date) -> dict:
+        self.calls.append(("get_workout_history", (from_date, to_date)))
+        return {"from": from_date.isoformat(), "to": to_date.isoformat(), "diaries": []}
 
 
 def member_actor(*, user_id: int = MEMBER_ID) -> ActorContext:
@@ -80,6 +93,7 @@ class _Builder:
         )
         self.retriever = FakeRetriever()
         self.llm = FakeLLMPort()
+        self.tool_client = FakeSpringChatbotToolClient()
         self.conversation = FakeConversationProvider()
         self.routine_service = RoutineService(
             user_data=self.user_data,
@@ -88,7 +102,7 @@ class _Builder:
             llm=self.llm,
         )
 
-    def config(self, *, actor: ActorContext | None = None, call_limit: int | None = None) -> dict:
+    def config(self, *, call_limit: int | None = None) -> dict:
         deps = ChatbotDeps(
             llm=self.llm,
             retriever=self.retriever,
@@ -96,11 +110,7 @@ class _Builder:
             routine_service=self.routine_service,
             conversation_provider=self.conversation,
         )
-        registry = ToolRegistry(
-            user_data=self.user_data,
-            context=ToolExecutionContext(actor=actor or member_actor()),
-            call_limit=call_limit,
-        )
+        registry = ToolRegistry(client=self.tool_client, call_limit=call_limit)
         return {
             "configurable": {
                 "deps": deps,

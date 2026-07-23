@@ -4,10 +4,10 @@
 
 - 작성일: 2026-07-19
 - 최종 수정일: 2026-07-23
-- 상태: **Task 1~14 구현 완료** + **챗봇 응답 SSE 스트리밍 전환 완료.** 회원 챗봇 API(`POST /api/v1/chatbot/messages`)가 이제 `text/event-stream`으로 응답하며, 트레이너 루틴 분석 API(`POST /api/v1/routines/trainer-analysis`)는 기존과 동일(non-streaming)하다. 둘 다 Fake 기반으로 동작하며, 전체 테스트 170 passed. Spring 실 연동(Deferred Integration Plan)은 별도 계획으로 이어감.
+- 상태: **Task 1~14 구현 완료** + **챗봇 응답 SSE 스트리밍 전환 완료** + **Spring 챗봇 도구 연동 완료.** 회원 챗봇 API(`POST /api/v1/chatbot/messages`)는 `text/event-stream`으로 응답하며, 개인 데이터 Function Calling은 Spring 내부 도구 API 두 개를 호출한다. 최신 도구 계약은 `.docs/CHATBOT_SPRING_TOOLS.md`를 기준으로 한다.
 - 설계와 실제 구현이 달라진 부분과 이유는 `.docs/ARCHITECTURE.md`, `.docs/ERROR_HANDLING.md`, `.docs/TESTING.md`의 "🔧 실제 구현과의 차이" 절에 정리했다.
 - 챗봇 SSE 스트리밍 전환의 상세 설계·구현 계획은 `docs/superpowers/specs/2026-07-22-chatbot-streaming-design.md`, `docs/superpowers/plans/2026-07-22-chatbot-sse-streaming.md`를 참고한다(아래 "Deferred Integration Plan" 3번 항목 참고).
-- Spring 소유 챗봇 영속화, 요청 이력 전달, WebSocket 릴레이 계약은 별도 Spring 저장소의 `Gym-Jjak/src/main/java/com/ssambbong/gymjjak/chatbot/docs/{ARCHITECTURE,WEBSOCKET_API,WEBSOCKET_FLOW,API}.md`를 기준으로 한다. 이 문서에서 언급하는 Spring 연동·영속화·이력 요청 계약은 모두 **구현 대기 상태**이며, 현재 FastAPI에는 실 Spring 연동이 없다.
+- Spring 소유 챗봇 영속화, 요청 이력 전달, WebSocket 릴레이 계약은 별도 Spring 저장소의 `Gym-Jjak/src/main/java/com/ssambbong/gymjjak/chatbot/docs/{ARCHITECTURE,WEBSOCKET_API,WEBSOCKET_FLOW,API}.md`를 기준으로 한다. Spring 도구 연동은 구현되었고, 대화 이력/문맥을 Spring 요청으로 전달하는 확장은 별도 후속 범위다.
 
 **Goal:** FastAPI, LangGraph, LangChain, Gemini Function Calling, ChromaDB RAG를 이용해 Gym-Jjak 회원용 챗봇과 트레이너용 일회성 루틴 분석 기능을 구현한다.
 
@@ -22,7 +22,7 @@
 - `.env` 파일과 실제 API Key를 읽거나 커밋하지 않는다.
 - 테스트와 CI는 실제 Gemini API를 자동 호출하지 않는다.
 - Gemini LLM 호출은 자동 재시도하지 않는다. 한 그래프 단계당 최대 1회 호출한다.
-- Spring 조회의 일시적 오류만 최대 1회 재시도하고, Chroma 조회는 재시도하지 않는다.
+- Spring 챗봇 도구 조회와 Chroma 조회는 자동 재시도하지 않는다.
 - 한 요청의 LLM 호출은 최대 6회, Tool 호출은 최대 5회로 제한한다.
 - actor/subject 식별자는 모델이 만들거나 변경하지 못하게 서버 컨텍스트에 고정한다.
 - 다른 팀원이 담당하는 `diet`, `pt_recommendation`, `trainer_report` 도메인 코드는 수정하지 않는다.
@@ -1070,7 +1070,7 @@ flowchart TD
 - `intent_hint`가 있으면 LLM 분류보다 우선한다.
 - 자연어 분류는 규칙 기반 고신뢰 키워드를 먼저 적용하고 모호할 때만 LLM 1회 사용한다.
 - `agent_node` 한 번 실행이 LLM 호출 1회다.
-- Tool 결과가 있으면 다음 `agent_node` 호출은 정상 Function Calling 후속 호출이며 재시도가 아니다.
+- Tool 결과가 있으면 다음 `agent_node` 호출은 정상 Function Calling 후속 호출이며 재시도가 아니다. Gemini 2.5+/3 계열은 이 후속 호출에서 각 도구 호출의 `thought_signature`를 요구하므로, 스트리밍 청크별 서명 맵을 도구 호출 ID 기준으로 누적 보존한다.
 - `llm_call_count >= 6`, `tool_call_count >= 5`이면 오류 답변으로 종료한다.
 - 접근 검증을 통과한 user 메시지는 한 번 저장한다. assistant 메시지는 성공한 답변만 저장하며, LLM 실패 안내는 정상 assistant 메시지로 저장하지 않는다.
 
@@ -1312,12 +1312,11 @@ git commit -m "docs: finalize chatbot implementation and verification"
 
 다음 항목은 이번 초기 구현이 완료된 뒤 별도 계획으로 진행한다.
 
-1. **Spring Boot 조회 API 연결** — 계약 설계 완료(2026-07-22), FastAPI 측 구현 대기
-   - 계약·설계 문서: `.docs/SPRING_INTEGRATION.md`(8개 엔드포인트, `X-Internal-Api-Key`, 에러·재시도 매핑, `SpringUserDataClient` 설계, Spring 팀 확인 사항)
-   - FakeUserDataClient를 HTTP 구현으로 교체
-   - 내부 인증 계약 확정
-   - Spring 5xx/timeout만 최대 1회 재시도
-   - RDS 직접 접근 금지 유지
+1. **Spring 챗봇 도구 API 연결 — ✅ 2026-07-23 완료**
+   - 구현: `app/chatbot/spring_tool_client.py`, `app/chatbot/tools.py`, `app/chatbot/service.py`, `app/chatbot/nodes.py`
+   - 등록 도구: InBody 최신 기록, 기간별 운동 일지 두 개뿐이며 LLM 인자에 `user_id`를 포함하지 않는다.
+   - Spring이 인증·활성 구독·세션 소유권을 검증하고, FastAPI는 요청별 `session_id`/`request_id` 헤더만 전파한다.
+   - 최신 계약: `.docs/CHATBOT_SPRING_TOOLS.md`; RDS 직접 접근 금지는 유지한다.
 
 2. **Spring 소유 챗봇 영속화 및 이력 요청 계약 구현**
    - Spring이 `chatbot_session`/`chatbot_message`의 영속화와 목록 조회·이어하기·6개월 비활성 데이터 정리를 소유한다. 요약·문맥은 요청 `memory`에 포함하며, 별도 영속 필드는 후속 확장 시에만 추가한다. FastAPI는 RDS나 Spring 저장소에 직접 접근하지 않는다.

@@ -2,7 +2,7 @@
 
 from app.chatbot.prompts import REJECT_MESSAGE
 from app.chatbot.state import IntentClassification
-from app.common.models import ActorContext, PaymentHistory, Role, SubscriptionStatus
+from app.common.models import ActorContext, Role, SubscriptionStatus
 from app.llm.errors import LLMNetworkError
 from app.llm.models import LLMResponse, ToolCall
 from app.rag.models import RetrievedDocument
@@ -26,22 +26,22 @@ async def test_service_policy_question_uses_rag_and_returns_sources(graph, build
     assert result["sources"]
 
 
-async def test_payment_history_question_uses_function_calling(graph, builder) -> None:
-    builder.user_data._payment_histories[10] = [
-        PaymentHistory(paid_at="2026-07-01T00:00:00", amount="50000", item_name="1개월 이용권")
-    ]
+async def test_inbody_question_uses_only_spring_tool_schemas(graph, builder) -> None:
     builder.llm.responses_queue = [
-        LLMResponse(text="", tool_calls=[ToolCall(name="get_payment_history", args={}, id="call-1")]),
-        LLMResponse(text="최근 결제 내역은 1개월 이용권 5만원입니다."),
+        LLMResponse(text="", tool_calls=[ToolCall(name="get_latest_inbody", args={}, id="call-1")]),
+        LLMResponse(text="최근 인바디 기록이 없습니다."),
     ]
 
-    result = await graph.ainvoke(chat_state(message="제 결제 내역 알려주세요"), config=builder.config())
+    result = await graph.ainvoke(chat_state(message="최근 인바디 알려주세요"), config=builder.config())
 
     assert result["route"] == "personal"
     assert result["answer"]
     assert len(result["tool_results"]) == 1
     assert result["llm_call_count"] == 2
     assert result["tool_call_count"] == 1
+    assert [schema["function"]["name"] for schema in builder.llm.received_tools[0]] == [
+        "get_latest_inbody", "get_workout_history"
+    ]
 
 
 async def test_routine_button_bypasses_intent_llm(graph, builder) -> None:
@@ -109,14 +109,14 @@ async def test_medical_question_gets_general_info_and_expert_referral(graph, bui
     assert result["tool_call_count"] == 0
 
 
-async def test_expired_subscription_blocks_new_message(graph, builder) -> None:
+async def test_access_guard_does_not_requery_subscription(graph, builder) -> None:
     builder.user_data._subscriptions[10] = SubscriptionStatus(is_active=False)
+    builder.llm.response = LLMResponse(text="인바디 정보를 안내드립니다.")
 
-    result = await graph.ainvoke(chat_state(message="결제 내역 알려줘"), config=builder.config())
+    result = await graph.ainvoke(chat_state(message="인바디 알려줘"), config=builder.config())
 
-    assert result["error_code"] == "CHATBOT_SUBSCRIPTION_REQUIRED"
-    assert not result.get("answer")
-    assert builder.conversation.appended_messages == []
+    assert result["answer"] == "인바디 정보를 안내드립니다."
+    assert ("get_subscription_status", 10) not in builder.user_data.calls
 
 
 async def test_llm_error_propagates_without_retry(graph, builder) -> None:

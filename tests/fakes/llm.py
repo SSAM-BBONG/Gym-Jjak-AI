@@ -1,6 +1,7 @@
-from typing import Any, AsyncIterator, Callable
+from typing import Any, AsyncIterator
 
 from app.llm.models import LLMMessage, LLMResponse, LLMStreamChunk
+from app.llm.port import ToolDefinition
 
 
 class FakeLLMPort:
@@ -21,7 +22,7 @@ class FakeLLMPort:
         self.response = response or LLMResponse(text="fake response")
         self.responses_queue = list(responses) if responses is not None else None
         self.received_messages: list[list[LLMMessage]] = []
-        self.received_tools: list[list[Callable] | None] = []
+        self.received_tools: list[list[ToolDefinition] | None] = []
 
         self.structured_response = structured_response
         self.structured_call_count = 0
@@ -31,7 +32,7 @@ class FakeLLMPort:
     async def generate(
         self,
         messages: list[LLMMessage],
-        tools: list[Callable] | None = None,
+        tools: list[ToolDefinition] | None = None,
     ) -> LLMResponse:
         """호출 인자를 기록하고, responses 큐가 있으면 순서대로, 없으면 고정 response를 반환한다."""
         self.received_messages.append(messages)
@@ -46,7 +47,7 @@ class FakeLLMPort:
     async def stream(
         self,
         messages: list[LLMMessage],
-        tools: list[Callable] | None = None,
+        tools: list[ToolDefinition] | None = None,
     ) -> AsyncIterator[LLMStreamChunk]:
         """generate()와 동일한 response/responses_queue를 재사용한다. 텍스트가 있으면
         델타 1개로 흘려보낸 뒤 최종 응답을 담은 청크를 낸다."""

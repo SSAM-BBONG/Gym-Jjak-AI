@@ -12,11 +12,14 @@ import json
 import logging
 from typing import AsyncIterator
 
+import httpx
+
 from app.chatbot.exceptions import ChatRequestTimeoutError, LLMCallLimitExceededError
 from app.chatbot.nodes import ChatbotDeps
 from app.chatbot.schemas import ChatRequest, ChatResponse
+from app.chatbot.spring_tool_client import ChatbotToolContext, SpringChatbotToolClient
 from app.chatbot.state import ChatState
-from app.chatbot.tools import ToolExecutionContext, ToolRegistry
+from app.chatbot.tools import ToolRegistry
 from app.core.exceptions import AppError
 from app.core.logging import get_request_id
 from app.core.settings import get_settings
@@ -85,6 +88,24 @@ class ChatbotService:
         self._graph = graph
         self._deps = deps
 
+    @staticmethod
+    def _new_spring_http_client() -> httpx.AsyncClient:
+        """현재 챗봇 요청 안에서만 사용할 Spring HTTP 클라이언트를 만든다.
+
+        반환값은 chat()의 async with가 닫는다. 전역 클라이언트로 두면 테스트·종료 시점과
+        세션별 보안 컨텍스트가 복잡해지므로, 현재는 요청 범위를 명확히 유지한다.
+        """
+        settings = get_settings()
+        return httpx.AsyncClient(
+            base_url=str(settings.spring_base_url),
+            timeout=httpx.Timeout(
+                connect=settings.spring_connect_timeout_seconds,
+                read=settings.spring_read_timeout_seconds,
+                write=settings.spring_read_timeout_seconds,
+                pool=settings.spring_connect_timeout_seconds,
+            ),
+        )
+
     async def _run_graph_and_signal(self, initial_state: ChatState, config: dict, queue: asyncio.Queue) -> None:
         try:
             result = await asyncio.wait_for(
@@ -138,18 +159,7 @@ class ChatbotService:
                 tool_call_count=0,
             )
 
-            tool_registry = ToolRegistry(
-                user_data=self._deps.user_data,
-                context=ToolExecutionContext(actor=request.actor),
-            )
             queue: asyncio.Queue = asyncio.Queue()
-            config = {
-                "configurable": {
-                    "deps": self._deps,
-                    "tool_registry": tool_registry,
-                    "stream_queue": queue,
-                }
-            }
         except (AppError, LLMError) as e:  # 예상된 오류. 상세 코드만 남기고 스택트레이스는 생략한다.
             logger.warning(
                 "chatbot_setup_handled_error request_id=%s code=%s",
@@ -163,18 +173,34 @@ class ChatbotService:
             yield _sse_event("error", _error_payload(e, request_id))
             return
 
-        task = asyncio.create_task(self._run_graph_and_signal(initial_state, config, queue))
-        done_signal: _StreamDone | None = None
-        try:
-            while done_signal is None:
-                item = await queue.get()
-                if isinstance(item, _StreamDone):
-                    done_signal = item
-                else:
-                    yield _sse_event("delta", {"text": item})
-        finally:
-            if not task.done():
-                task.cancel()
+        async with self._new_spring_http_client() as http_client:
+            # 이 registry/client는 이번 SSE 요청에만 묶인다. request_id가 다른 요청에 재사용되지 않는다.
+            tool_registry = ToolRegistry(
+                client=SpringChatbotToolClient(
+                    context=ChatbotToolContext(session_id=request.session_id, request_id=request_id),
+                    http_client=http_client,
+                )
+            )
+            config = {
+                # 컴파일된 LangGraph는 공유하되, 요청별 의존성은 config로 주입한다.
+                "configurable": {
+                    "deps": self._deps,
+                    "tool_registry": tool_registry,
+                    "stream_queue": queue,
+                }
+            }
+            task = asyncio.create_task(self._run_graph_and_signal(initial_state, config, queue))
+            done_signal: _StreamDone | None = None
+            try:
+                while done_signal is None:
+                    item = await queue.get()
+                    if isinstance(item, _StreamDone):
+                        done_signal = item
+                    else:
+                        yield _sse_event("delta", {"text": item})
+            finally:
+                if not task.done():
+                    task.cancel()
 
         if done_signal.error is not None:
             yield _sse_event("error", _error_payload(done_signal.error, request_id))

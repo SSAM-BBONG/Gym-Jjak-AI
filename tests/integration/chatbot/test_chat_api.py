@@ -102,10 +102,14 @@ async def test_chat_message_requires_internal_api_key() -> None:
 
 
 async def test_chat_message_rejects_blank_message() -> None:
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.post(
-            "/api/v1/chatbot/messages", headers=_HEADERS, json=_payload(message="")
-        )
+    app.dependency_overrides[get_chatbot_service] = lambda: FakeChatbotService()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post(
+                "/api/v1/chatbot/messages", headers=_HEADERS, json=_payload(message="")
+            )
+    finally:
+        app.dependency_overrides.clear()
 
     assert response.status_code == 422
     assert response.json()["code"] == "REQUEST_VALIDATION_ERROR"

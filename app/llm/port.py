@@ -1,10 +1,11 @@
-from typing import AsyncIterator, Callable, Protocol, TypeVar
+from typing import Any, AsyncIterator, Callable, Protocol, TypeAlias, TypeVar
 
 from pydantic import BaseModel
 
 from app.llm.models import LLMMessage, LLMResponse, LLMStreamChunk
 
 StructuredOutput = TypeVar("StructuredOutput", bound=BaseModel)
+ToolDefinition: TypeAlias = dict[str, Any] | Callable[..., Any]
 
 
 class LLMPort(Protocol):
@@ -14,7 +15,7 @@ class LLMPort(Protocol):
     async def generate(
         self,
         messages: list[LLMMessage],
-        tools: list[Callable] | None = None,
+        tools: list[ToolDefinition] | None = None,
     ) -> LLMResponse:
         """대화 메시지 목록으로 1회 호출한다. tools가 있으면 Function Calling을 시도한다."""
         ...
@@ -22,7 +23,7 @@ class LLMPort(Protocol):
     async def stream(
         self,
         messages: list[LLMMessage],
-        tools: list[Callable] | None = None,
+        tools: list[ToolDefinition] | None = None,
     ) -> AsyncIterator[LLMStreamChunk]:
         """대화 메시지 목록으로 1회 호출하되, 텍스트를 토큰 단위로 흘려보낸다.
         마지막에 tool_calls까지 포함한 전체 응답을 담은 청크를 낸다."""

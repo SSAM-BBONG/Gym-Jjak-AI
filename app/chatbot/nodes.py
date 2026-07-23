@@ -15,7 +15,12 @@ from app.chatbot.prompts import (
     build_intent_classification_prompt,
     build_rag_prompt,
 )
-from app.chatbot.tools import DuplicateToolCallError, ToolCallLimitExceededError, ToolRegistry
+from app.chatbot.tools import (
+    DuplicateToolCallError,
+    ToolArgumentValidationError,
+    ToolCallLimitExceededError,
+    ToolRegistry,
+)
 from app.common.conversation import ChatMessage, ConversationProvider
 from app.common.models import Role
 from app.common.user_data_client import UserDataClient
@@ -62,16 +67,11 @@ def _stream_queue(config: RunnableConfig) -> asyncio.Queue:
 
 
 async def access_guard(state: ChatState, config: RunnableConfig) -> dict:
-    """role=USER, 활성 구독 여부를 확인한다. 실패하면 이후 노드는 진행하되
-    다른 노드들이 error_code를 보고 조기 종료한다."""
-    deps = _deps(config)
+    """Spring이 선검증한 구독을 신뢰하고, FastAPI에서는 역할만 확인한다."""
     actor = state["actor"]
     if actor.role != Role.USER:
         return {"error_code": "ROLE_NOT_ALLOWED"}
 
-    subscription = await deps.user_data.get_subscription_status(actor.user_id)
-    if not subscription.is_active:
-        return {"error_code": "CHATBOT_SUBSCRIPTION_REQUIRED"}
     return {}
 
 
@@ -132,7 +132,9 @@ async def agent_node(state: ChatState, config: RunnableConfig) -> dict:
     llm_messages = state.get("llm_messages") or _build_initial_agent_messages(state)
 
     response = None
-    async for chunk in deps.llm.stream(llm_messages):
+    # tool_definitions()를 넘겨야 Gemini가 두 Spring 조회 도구를 Function Call 후보로 인식한다.
+    # 실행은 여기서 직접 하지 않고, 모델 응답 뒤 LangGraph의 tool_node가 담당한다.
+    async for chunk in deps.llm.stream(llm_messages, tools=_tool_registry(config).tool_definitions()):
         if chunk.delta:
             await queue.put(chunk.delta)
         if chunk.response is not None:
@@ -167,6 +169,7 @@ async def tool_node(state: ChatState, config: RunnableConfig) -> dict:
 
     for call in state.get("pending_tool_calls") or []:
         try:
+            # Spring data만 JSON으로 직렬화해 ToolMessage에 넣는다. 내부 헤더/세션 정보는 모델에 노출하지 않는다.
             result = await registry.execute(call.name, call.args)
             content = json.dumps(result.data, ensure_ascii=False, default=str)
             tool_results.append(result)
@@ -174,6 +177,8 @@ async def tool_node(state: ChatState, config: RunnableConfig) -> dict:
             content = json.dumps({"error": "DUPLICATE_TOOL_CALL"})
         except ToolCallLimitExceededError:
             content = json.dumps({"error": "TOOL_CALL_LIMIT_EXCEEDED"})
+        except ToolArgumentValidationError:
+            content = json.dumps({"error": "TOOL_INPUT_INVALID"})
         llm_messages.append(LLMMessage(role="tool", content=content, tool_call_id=call.id))
         tool_call_count += 1
 

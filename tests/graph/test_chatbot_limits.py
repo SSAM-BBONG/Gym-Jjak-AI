@@ -8,7 +8,16 @@ from .conftest import chat_state
 async def test_llm_call_limit_exceeded_ends_with_error_code(graph, builder) -> None:
     # agent_node가 매번 새 도구 호출을 요청하도록 만들어 llm_call_limit(6)에 걸리게 한다.
     builder.llm.responses_queue = [
-        LLMResponse(text="", tool_calls=[ToolCall(name="get_pt_usage", args={"n": i}, id=f"call-{i}")])
+        LLMResponse(
+            text="",
+            tool_calls=[
+                ToolCall(
+                    name="get_workout_history",
+                    args={"from": f"2026-07-{i + 1:02}", "to": f"2026-07-{i + 1:02}"},
+                    id=f"call-{i}",
+                )
+            ],
+        )
         for i in range(10)
     ]
 
@@ -21,8 +30,8 @@ async def test_llm_call_limit_exceeded_ends_with_error_code(graph, builder) -> N
 
 async def test_duplicate_tool_call_is_reported_as_tool_error_not_crash(graph, builder) -> None:
     builder.llm.responses_queue = [
-        LLMResponse(text="", tool_calls=[ToolCall(name="get_pt_usage", args={}, id="call-1")]),
-        LLMResponse(text="", tool_calls=[ToolCall(name="get_pt_usage", args={}, id="call-2")]),
+        LLMResponse(text="", tool_calls=[ToolCall(name="get_latest_inbody", args={}, id="call-1")]),
+        LLMResponse(text="", tool_calls=[ToolCall(name="get_latest_inbody", args={}, id="call-2")]),
         LLMResponse(text="확인했습니다."),
     ]
 
@@ -37,11 +46,17 @@ async def test_duplicate_tool_call_is_reported_as_tool_error_not_crash(graph, bu
 
 async def test_tool_call_limit_is_reported_as_tool_error_not_crash(graph, builder) -> None:
     # call_limit=1로 좁혀서 두 번째 도구 호출이 한도 초과가 되도록 만든다.
-    tool_names = ["get_pt_usage", "get_subscription_status", "get_onboarding"]
     builder.llm.responses_queue = [
         LLMResponse(
             text="",
-            tool_calls=[ToolCall(name=name, args={}, id=f"call-{i}") for i, name in enumerate(tool_names)],
+            tool_calls=[
+                ToolCall(name="get_latest_inbody", args={}, id="call-0"),
+                ToolCall(
+                    name="get_workout_history",
+                    args={"from": "2026-07-01", "to": "2026-07-01"},
+                    id="call-1",
+                ),
+            ],
         ),
         LLMResponse(text="확인했습니다."),
     ]

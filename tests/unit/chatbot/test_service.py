@@ -4,6 +4,7 @@
 import asyncio
 import json
 
+import httpx
 import pytest
 
 from app.chatbot.graph import build_chatbot_graph
@@ -11,7 +12,7 @@ from app.chatbot.nodes import ChatbotDeps
 from app.chatbot.prompts import REJECT_MESSAGE
 from app.chatbot.schemas import ChatRequest
 from app.chatbot.service import ChatbotService
-from app.common.models import ActorContext, PaymentHistory, Role
+from app.common.models import ActorContext, Role
 from app.llm.models import LLMResponse, ToolCall
 
 from tests.graph.conftest import MEMBER_ID, _Builder, member_actor, sample_routine_result
@@ -137,19 +138,16 @@ async def test_chat_emits_single_delta_before_done_for_routine_route() -> None:
     assert done["category"] == "ROUTINE"
 
 
-async def test_chat_emits_error_event_for_inactive_subscription() -> None:
+async def test_chat_does_not_requery_inactive_subscription() -> None:
     builder = _Builder()
     builder.user_data._subscriptions[MEMBER_ID].is_active = False
+    builder.llm.response = LLMResponse(text="환불은 7일 이내 가능합니다.")
     service = build_service(builder)
 
     events = await _run(service, chat_request())
 
-    assert len(events) == 1
-    event, data = events[0]
-    assert event == "error"
-    assert data["code"] == "CHATBOT_SUBSCRIPTION_REQUIRED"
-    assert data["retryable"] is False
-    assert data["request_id"]
+    assert events[-1][0] == "done"
+    assert ("get_subscription_status", MEMBER_ID) not in builder.user_data.calls
 
 
 async def test_chat_emits_error_event_for_trainer_actor() -> None:
@@ -166,22 +164,26 @@ async def test_chat_emits_error_event_for_trainer_actor() -> None:
     assert data["code"] == "ROLE_NOT_ALLOWED"
 
 
-async def test_chat_uses_actor_fixed_id_for_function_calling() -> None:
+async def test_chat_uses_spring_tool_for_function_calling(respx_mock) -> None:
     builder = _Builder()
-    builder.user_data._payment_histories[MEMBER_ID] = [
-        PaymentHistory(paid_at="2026-07-01T00:00:00", amount="10000", item_name="테스트")
-    ]
     builder.llm.responses_queue = [
-        LLMResponse(text="", tool_calls=[ToolCall(name="get_payment_history", args={}, id="call-1")]),
-        LLMResponse(text="결제 내역을 안내드립니다."),
+        LLMResponse(text="", tool_calls=[ToolCall(name="get_latest_inbody", args={}, id="call-1")]),
+        LLMResponse(text="최근 인바디 기록이 없습니다."),
     ]
+    route = respx_mock.get("http://localhost:8080/internal/chatbot/tools/inbody/latest").mock(
+        return_value=httpx.Response(200, json={"data": None})
+    )
     service = build_service(builder)
 
-    events = await _run(service, chat_request(message="결제 내역 알려줘"))
+    events = await _run(service, chat_request(message="최근 인바디 알려줘"))
 
     done = next(data for event, data in events if event == "done")
     assert done["category"] == "PERSONAL"
-    assert builder.user_data.calls[-1] == ("get_payment_history", MEMBER_ID)
+    assert route.called
+    request_headers = route.calls[0].request.headers
+    assert request_headers["X-Internal-Api-Key"] == "local-development-only"
+    assert request_headers["X-Chatbot-Session-Id"] == "session-1"
+    assert request_headers["X-Request-ID"] == done["request_id"]
 
 
 async def test_chat_emits_timeout_error_event_when_graph_exceeds_budget(monkeypatch) -> None:
@@ -220,12 +222,15 @@ async def test_chat_emits_error_event_when_conversation_provider_load_fails() ->
     assert data["request_id"]
 
 
-async def test_chat_emits_llm_call_limit_exceeded_error_event() -> None:
+async def test_chat_emits_llm_call_limit_exceeded_error_event(respx_mock) -> None:
     builder = _Builder()
     builder.llm.responses_queue = [
-        LLMResponse(text="", tool_calls=[ToolCall(name="get_pt_usage", args={"n": i}, id=f"call-{i}")])
+        LLMResponse(text="", tool_calls=[ToolCall(name="get_latest_inbody", args={"n": i}, id=f"call-{i}")])
         for i in range(10)
     ]
+    respx_mock.get("http://localhost:8080/internal/chatbot/tools/inbody/latest").mock(
+        return_value=httpx.Response(200, json={"data": None})
+    )
     service = build_service(builder)
 
     events = await _run(service, chat_request(message="결제 내역 알려줘"))

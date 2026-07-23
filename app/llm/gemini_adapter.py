@@ -1,6 +1,6 @@
 import base64
 import asyncio
-from typing import AsyncIterator, Callable
+from typing import AsyncIterator
 
 import httpx
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -11,7 +11,7 @@ from pydantic import BaseModel, ValidationError
 from app.core.settings import settings
 from app.llm.errors import LLMInvalidResponseError, LLMNetworkError, LLMRateLimitedError
 from app.llm.models import LLMMessage, LLMResponse, LLMStreamChunk, ToolCall
-from app.llm.port import StructuredOutput
+from app.llm.port import StructuredOutput, ToolDefinition
 
 _ROLE_TO_MESSAGE_CLASS = {
     "system": SystemMessage,
@@ -101,7 +101,7 @@ class GeminiAdapter:
     async def generate(
         self,
         messages: list[LLMMessage],
-        tools: list[Callable] | None = None,
+        tools: list[ToolDefinition] | None = None,
     ) -> LLMResponse:
         base_model = self._get_model()
         model = base_model.bind_tools(tools) if tools else base_model
@@ -136,7 +136,7 @@ class GeminiAdapter:
     async def stream(
         self,
         messages: list[LLMMessage],
-        tools: list[Callable] | None = None,
+        tools: list[ToolDefinition] | None = None,
     ) -> AsyncIterator[LLMStreamChunk]:
         """generate()와 같은 호출을 토큰 단위로 흘려보낸다. tool_calls는 일반적으로
         마지막 청크에만 전체가 채워져 오므로, 각 청크의 tool_calls를 그때그때 최신값으로
@@ -147,7 +147,10 @@ class GeminiAdapter:
 
         text_parts: list[str] = []
         tool_calls_raw: list[dict] = []
-        additional_kwargs: dict = {}
+        # Gemini는 Function Call마다 별도 thought_signature를 보낼 수 있다.
+        # 스트림 청크의 맵을 통째로 덮어쓰면 앞선 도구의 서명이 사라져,
+        # 도구 결과를 받은 다음 Gemini 호출이 400으로 거절될 수 있다.
+        thought_signature_map: dict[str, str] = {}
         try:
             async for chunk in model.astream(langchain_messages):
                 piece = _extract_text(chunk.content)
@@ -157,19 +160,20 @@ class GeminiAdapter:
                 if chunk.tool_calls:
                     tool_calls_raw = chunk.tool_calls
                 if chunk.additional_kwargs:
-                    additional_kwargs.update(chunk.additional_kwargs)
+                    signatures = chunk.additional_kwargs.get(_THOUGHT_SIGNATURE_KEY)
+                    if isinstance(signatures, dict):
+                        thought_signature_map.update(signatures)
         except (httpx.ConnectError, httpx.TimeoutException) as e:
             raise LLMNetworkError(str(e)) from e
         except ChatGoogleGenerativeAIError as e:
             _raise_for_gemini_error(e)
 
-        signature_map = additional_kwargs.get(_THOUGHT_SIGNATURE_KEY, {})
         tool_calls = [
             ToolCall(
                 name=tc["name"],
                 args=tc["args"],
                 id=tc["id"],
-                thought_signature=signature_map.get(tc["id"]),
+                thought_signature=thought_signature_map.get(tc["id"]),
             )
             for tc in tool_calls_raw
         ]

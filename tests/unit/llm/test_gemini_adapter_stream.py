@@ -57,6 +57,35 @@ async def test_stream_carries_tool_calls_and_thought_signature_in_final_response
     assert final.tool_calls[0].thought_signature == "c2ln"
 
 
+async def test_stream_merges_thought_signatures_from_multiple_tool_call_chunks() -> None:
+    chunks = [
+        _FakeChunk(
+            tool_calls=[{"name": "get_latest_inbody", "args": {}, "id": "call-1"}],
+            additional_kwargs={_THOUGHT_SIGNATURE_KEY: {"call-1": "signature-1"}},
+        ),
+        _FakeChunk(
+            tool_calls=[
+                {"name": "get_latest_inbody", "args": {}, "id": "call-1"},
+                {
+                    "name": "get_workout_history",
+                    "args": {"from": "2026-07-01", "to": "2026-07-23"},
+                    "id": "call-2",
+                },
+            ],
+            additional_kwargs={_THOUGHT_SIGNATURE_KEY: {"call-2": "signature-2"}},
+        ),
+    ]
+    adapter = _adapter_with_astream(chunks)
+
+    responses = [chunk async for chunk in adapter.stream([LLMMessage(role="user", content="운동 기록 분석")])]
+
+    tool_calls = responses[-1].response.tool_calls
+    assert [(call.id, call.thought_signature) for call in tool_calls] == [
+        ("call-1", "signature-1"),
+        ("call-2", "signature-2"),
+    ]
+
+
 async def test_stream_raises_invalid_response_when_no_text_or_tool_calls() -> None:
     adapter = _adapter_with_astream([_FakeChunk(content="")])
 

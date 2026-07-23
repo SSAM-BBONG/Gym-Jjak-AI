@@ -1,5 +1,7 @@
 # 🔌 Spring 연동 계약 — FastAPI→Spring 조회 API (UserDataClient)
 
+> **2026-07-23 현재 상태:** 이 문서의 8개 `UserDataClient` 제안은 과거 초안이다. 실제 챗봇 Function Calling 연동은 아래의 두 Spring 내부 도구 API만 사용하며, 최신 계약은 [CHATBOT_SPRING_TOOLS.md](CHATBOT_SPRING_TOOLS.md)를 기준으로 한다.
+
 - 작성일: 2026-07-22
 - 최종 수정일: 2026-07-22
 - 상태: **설계·계약 제안 단계** — FastAPI 측 코드 구현 전, Spring 팀 확정 대기
