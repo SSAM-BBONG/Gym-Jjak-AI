@@ -24,7 +24,6 @@ def build_service(builder: _Builder) -> ChatbotService:
         retriever=builder.retriever,
         user_data=builder.user_data,
         routine_service=builder.routine_service,
-        conversation_provider=builder.conversation,
     )
     return ChatbotService(graph=build_chatbot_graph(), deps=deps)
 
@@ -33,6 +32,16 @@ def chat_request(**overrides) -> ChatRequest:
     payload = {"session_id": "session-1", "message": "환불 정책이 궁금해요", "actor": member_actor()}
     payload.update(overrides)
     return ChatRequest(**payload)
+
+
+def test_chat_request_keeps_spring_memory_context() -> None:
+    request = chat_request(memory={
+        "summary": "이전 대화 요약",
+        "recentMessages": [{"role": "assistant", "content": "이전 답변"}],
+        "contexts": [{"kind": "ROUTINE_PREFERENCE", "value": '{"goal":"MUSCLE_GAIN"}'}],
+    })
+
+    assert hasattr(request, "memory")
 
 
 def _parse_sse(raw_events: list[str]) -> list[tuple[str, dict]]:
@@ -78,14 +87,14 @@ async def test_chat_streams_deltas_before_done_event() -> None:
     assert "".join(delta_texts) == "환불은 7일 이내 가능합니다."
 
 
-async def test_chat_persists_via_conversation_provider() -> None:
+async def test_chat_does_not_persist_via_fastapi_conversation_provider() -> None:
     builder = _Builder()
     builder.llm.response = LLMResponse(text="환불은 7일 이내 가능합니다.")
     service = build_service(builder)
 
     await _run(service, chat_request())
 
-    assert len(builder.conversation.appended_messages) == 2  # user + assistant
+    assert not hasattr(builder, "conversation")
 
 
 async def test_chat_returns_routine_result_and_limited_flag() -> None:
@@ -132,10 +141,11 @@ async def test_chat_emits_single_delta_before_done_for_routine_route() -> None:
     assert events[-1][0] == "done"
     delta_events = [data for event, data in events if event == "delta"]
     assert len(delta_events) == 1
-    assert delta_events[0]["text"] == sample_routine_result().summary
 
     done = next(data for event, data in events if event == "done")
     assert done["category"] == "ROUTINE"
+    assert delta_events[0]["text"] == done["answer"]
+    assert done["quick_replies"][0]["question_id"] == "ROUTINE_GOAL"
 
 
 async def test_chat_emits_error_event_for_trainer_actor() -> None:
@@ -190,24 +200,6 @@ async def test_chat_emits_timeout_error_event_when_graph_exceeds_budget(monkeypa
     event, data = events[0]
     assert event == "error"
     assert data["code"] == "CHATBOT_REQUEST_TIMEOUT"
-
-
-async def test_chat_emits_error_event_when_conversation_provider_load_fails() -> None:
-    builder = _Builder()
-    service = build_service(builder)
-
-    async def _boom(*args, **kwargs):
-        raise RuntimeError("대화 이력 조회 실패")
-
-    builder.conversation.load_summary = _boom
-
-    events = await _run(service, chat_request())
-
-    assert len(events) == 1
-    event, data = events[0]
-    assert event == "error"
-    assert data["code"] == "INTERNAL_ERROR"
-    assert data["request_id"]
 
 
 async def test_chat_emits_llm_call_limit_exceeded_error_event(respx_mock) -> None:

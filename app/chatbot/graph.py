@@ -11,10 +11,10 @@ flowchart:
     agent_node --tool_calls--> tool_node --> agent_node
     agent_node --answer/오류--> format_node
     rag_node/routine_node --> format_node
-    reject_node --> persist_node
-    format_node --> persist_node --> END
+    reject_node --> END
+    format_node --> END
 
-의존성(llm/retriever/user_data/routine_service/conversation_provider, tool_registry)은
+의존성(llm/retriever/user_data/routine_service, tool_registry)은
 그래프 자체에 묶지 않고 매 실행마다 config["configurable"]로 주입한다."""
 
 from langgraph.graph import END, StateGraph
@@ -23,8 +23,8 @@ from app.chatbot.nodes import (
     access_guard,
     agent_node,
     format_node,
+    greeting_node,
     intent_router,
-    persist_node,
     rag_node,
     reject_node,
     routine_node,
@@ -54,13 +54,13 @@ def build_chatbot_graph():
 
     graph.add_node("access_guard", access_guard)
     graph.add_node("intent_router", intent_router)
+    graph.add_node("greeting_node", greeting_node)
     graph.add_node("agent_node", agent_node)
     graph.add_node("tool_node", tool_node)
     graph.add_node("rag_node", rag_node)
     graph.add_node("routine_node", routine_node)
     graph.add_node("reject_node", reject_node)
     graph.add_node("format_node", format_node)
-    graph.add_node("persist_node", persist_node)
 
     graph.set_entry_point("access_guard")
 
@@ -71,20 +71,21 @@ def build_chatbot_graph():
         "intent_router",
         _route_by_intent,
         {
+            "greeting": "greeting_node",
             "routine": "routine_node",
             "personal": "agent_node",
             "service_policy": "rag_node",
             "reject": "reject_node",
         },
     )
+    graph.add_edge("greeting_node", "format_node")
     graph.add_conditional_edges(
         "agent_node", _after_agent, {"tools": "tool_node", "done": "format_node", "error": "format_node"}
     )
     graph.add_edge("tool_node", "agent_node")
     graph.add_edge("rag_node", "format_node")
     graph.add_edge("routine_node", "format_node")
-    graph.add_edge("reject_node", "persist_node")
-    graph.add_edge("format_node", "persist_node")
-    graph.add_edge("persist_node", END)
+    graph.add_edge("reject_node", END)
+    graph.add_edge("format_node", END)
 
     return graph.compile()

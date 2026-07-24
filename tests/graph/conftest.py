@@ -13,7 +13,6 @@ from app.common.models import ActorContext, OnboardingProfile, PtUsageSummary, R
 from app.routine.analyzer import WorkoutAnalyzer
 from app.routine.schemas import RoutineDay, RoutineExercise, RoutineResult
 from app.routine.service import RoutineService
-from tests.fakes.conversation import FakeConversationProvider
 from tests.fakes.llm import FakeLLMPort
 from tests.fakes.retriever import FakeRetriever
 from tests.fakes.user_data import FakeUserDataClient
@@ -93,7 +92,6 @@ class _Builder:
         self.retriever = FakeRetriever()
         self.llm = FakeLLMPort()
         self.tool_client = FakeSpringChatbotToolClient()
-        self.conversation = FakeConversationProvider()
         self.routine_service = RoutineService(
             user_data=self.user_data,
             analyzer=WorkoutAnalyzer(),
@@ -107,7 +105,6 @@ class _Builder:
             retriever=self.retriever,
             user_data=self.user_data,
             routine_service=self.routine_service,
-            conversation_provider=self.conversation,
         )
         registry = ToolRegistry(client=self.tool_client, call_limit=call_limit)
         return {

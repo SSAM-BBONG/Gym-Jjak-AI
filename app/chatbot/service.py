@@ -20,6 +20,7 @@ from app.chatbot.schemas import ChatRequest, ChatResponse
 from app.chatbot.spring_tool_client import ChatbotToolContext, SpringChatbotToolClient
 from app.chatbot.state import ChatState
 from app.chatbot.tools import ToolRegistry
+from app.common.conversation import ChatMessage, ConversationContext
 from app.core.exceptions import AppError
 from app.core.logging import get_request_id
 from app.core.settings import get_settings
@@ -34,6 +35,7 @@ _ERROR_CODE_TO_EXCEPTION = {
 }
 
 _CATEGORY_BY_ROUTE = {
+    "greeting": "GREETING",
     "routine": "ROUTINE",
     "personal": "PERSONAL",
     "service_policy": "SERVICE_POLICY",
@@ -135,25 +137,31 @@ class ChatbotService:
         request_id = get_request_id()
 
         try:
-            summary = await self._deps.conversation_provider.load_summary(
-                request.session_id, request.actor.user_id
-            )
-            recent_messages = await self._deps.conversation_provider.load_recent_messages(
-                request.session_id, request.actor.user_id
-            )
-            contexts = await self._deps.conversation_provider.load_context(
-                request.session_id, request.actor.user_id
-            )
-
             initial_state = ChatState(
                 request_id=request_id,
                 session_id=request.session_id,
                 actor=request.actor,
                 message=request.message,
                 intent_hint=request.intent_hint,
-                summary=summary,
-                recent_messages=recent_messages,
-                contexts=contexts,
+                summary=request.memory.summary,
+                recent_messages=[
+                    ChatMessage(
+                        session_id=request.session_id,
+                        user_id=request.actor.user_id,
+                        role=message.role,
+                        content=message.content,
+                    )
+                    for message in request.memory.recent_messages
+                ],
+                contexts=[
+                    ConversationContext(
+                        session_id=request.session_id,
+                        user_id=request.actor.user_id,
+                        kind=context.kind,
+                        value=context.value,
+                    )
+                    for context in request.memory.contexts
+                ],
                 llm_call_count=0,
                 tool_call_count=0,
             )
@@ -223,5 +231,6 @@ class ChatbotService:
             routine=routine_result,
             sources=result.get("sources") or [],
             limited=bool(routine_result and routine_result.status == "LIMITED"),
+            quick_replies=result.get("quick_replies") or [],
         )
         yield _sse_event("done", response.model_dump(mode="json"))
