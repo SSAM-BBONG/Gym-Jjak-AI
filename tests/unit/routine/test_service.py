@@ -3,10 +3,10 @@ from datetime import date
 import pytest
 
 from app.common.exceptions import SubjectAccessDeniedError
-from app.common.models import ActorContext, OnboardingProfile, Role, SubscriptionStatus
+from app.common.models import ActorContext, OnboardingProfile, Role
 from app.rag.models import RetrievedDocument
 from app.routine.analyzer import WorkoutAnalyzer
-from app.routine.exceptions import ActorRoleNotAllowedError, SubscriptionRequiredError
+from app.routine.exceptions import ActorRoleNotAllowedError
 from app.routine.schemas import (
     RoutineDay,
     RoutineExercise,
@@ -69,7 +69,6 @@ def build_routine_service(
     *,
     with_workouts: bool = True,
     with_inbody: bool = True,
-    subscription_active: bool = True,
     trainer_access: set[tuple[int, int]] | None = None,
 ):
     today = date.today()
@@ -84,7 +83,6 @@ def build_routine_service(
         else {}
     )
     user_data = FakeUserDataClient(
-        subscriptions={_MEMBER_ID: SubscriptionStatus(is_active=subscription_active)},
         onboarding_profiles={_MEMBER_ID: OnboardingProfile(goal="다이어트", experience_level="초보")},
         workout_diaries=workouts,
         inbody_records=inbody,
@@ -110,7 +108,7 @@ def build_routine_service(
 
 
 async def test_member_routine_uses_profile_workout_inbody_and_rag() -> None:
-    service, _, retriever, llm = build_routine_service()
+    service, user_data, retriever, llm = build_routine_service()
 
     result = await service.recommend_for_member(actor=member_actor(), request=routine_request())
 
@@ -118,6 +116,7 @@ async def test_member_routine_uses_profile_workout_inbody_and_rag() -> None:
     assert llm.structured_call_count == 1
     assert retriever.queries[0].category == "routine"
     assert result.sources
+    assert not any(call[0] == "get_subscription_status" for call in user_data.calls)
 
 
 async def test_missing_workout_and_inbody_returns_limited_result() -> None:
@@ -140,15 +139,6 @@ async def test_high_risk_message_blocks_before_llm_call() -> None:
     assert llm.structured_call_count == 0
 
 
-async def test_inactive_subscription_is_rejected() -> None:
-    service, _, _, llm = build_routine_service(subscription_active=False)
-
-    with pytest.raises(SubscriptionRequiredError):
-        await service.recommend_for_member(actor=member_actor(), request=routine_request())
-
-    assert llm.structured_call_count == 0
-
-
 async def test_trainer_role_cannot_use_member_path() -> None:
     service, _, _, _ = build_routine_service()
 
@@ -163,16 +153,14 @@ async def test_trainer_routine_checks_relationship_before_anything_else() -> Non
         await service.recommend_for_trainer(actor=trainer_actor(), subject_user_id=_MEMBER_ID)
 
     assert llm.structured_call_count == 0
-    assert not any(call[0] == "get_subscription_status" for call in user_data.calls)
 
 
-async def test_trainer_routine_does_not_query_subscription_or_payment() -> None:
+async def test_trainer_routine_does_not_query_payment() -> None:
     service, user_data, _, llm = build_routine_service()
 
     result = await service.recommend_for_trainer(actor=trainer_actor(), subject_user_id=_MEMBER_ID)
 
     assert result.status == "COMPLETE"
-    assert not any(call[0] == "get_subscription_status" for call in user_data.calls)
     assert not any(call[0] == "get_payment_history" for call in user_data.calls)
 
 

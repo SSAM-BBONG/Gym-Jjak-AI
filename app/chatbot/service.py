@@ -24,13 +24,12 @@ from app.core.exceptions import AppError
 from app.core.logging import get_request_id
 from app.core.settings import get_settings
 from app.llm.errors import LLMError
-from app.routine.exceptions import ActorRoleNotAllowedError, SubscriptionRequiredError
+from app.routine.exceptions import ActorRoleNotAllowedError
 
 logger = logging.getLogger(__name__)
 
 _ERROR_CODE_TO_EXCEPTION = {
     "ROLE_NOT_ALLOWED": ActorRoleNotAllowedError,
-    "CHATBOT_SUBSCRIPTION_REQUIRED": SubscriptionRequiredError,
     "LLM_CALL_LIMIT_EXCEEDED": LLMCallLimitExceededError,
 }
 

@@ -138,18 +138,6 @@ async def test_chat_emits_single_delta_before_done_for_routine_route() -> None:
     assert done["category"] == "ROUTINE"
 
 
-async def test_chat_does_not_requery_inactive_subscription() -> None:
-    builder = _Builder()
-    builder.user_data._subscriptions[MEMBER_ID].is_active = False
-    builder.llm.response = LLMResponse(text="환불은 7일 이내 가능합니다.")
-    service = build_service(builder)
-
-    events = await _run(service, chat_request())
-
-    assert events[-1][0] == "done"
-    assert ("get_subscription_status", MEMBER_ID) not in builder.user_data.calls
-
-
 async def test_chat_emits_error_event_for_trainer_actor() -> None:
     builder = _Builder()
     service = build_service(builder)

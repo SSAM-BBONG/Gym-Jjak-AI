@@ -23,14 +23,6 @@ class ActorContext(BaseModel):
     role: Role
 
 
-class SubscriptionStatus(BaseModel):
-    """AI 구독 활성 여부. 회원 챗봇 접근 권한 판단에 사용한다."""
-
-    is_active: bool
-    plan_name: str | None = None
-    expires_at: datetime | None = None
-
-
 class OnboardingProfile(BaseModel):
     """온보딩 시 등록한 목표·선호 운동·숙련도."""
 
