@@ -13,7 +13,7 @@ from app.llm.port import LLMPort
 from app.rag.models import RetrievedDocument
 from app.rag.retriever import RetrieverPort
 from app.routine.analyzer import WorkoutAnalyzer, analyze_inbody_trend
-from app.routine.exceptions import ActorRoleNotAllowedError, SubscriptionRequiredError
+from app.routine.exceptions import ActorRoleNotAllowedError
 from app.routine.prompts import build_member_routine_prompt, build_trainer_routine_prompt
 from app.routine.safety import assess_safety
 from app.routine.schemas import RoutineRequest, RoutineResult, SourceReference
@@ -43,10 +43,6 @@ class RoutineService:
         """회원용 루틴 추천. role/구독/안전 검사를 통과해야 LLM을 호출한다."""
         if actor.role != Role.USER:
             raise ActorRoleNotAllowedError()
-
-        subscription = await self._user_data.get_subscription_status(actor.user_id)
-        if not subscription.is_active:
-            raise SubscriptionRequiredError()
 
         safety = assess_safety(request.message)
         if safety.status == "BLOCKED":

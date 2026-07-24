@@ -2,7 +2,7 @@
 
 from app.chatbot.prompts import REJECT_MESSAGE
 from app.chatbot.state import IntentClassification
-from app.common.models import ActorContext, Role, SubscriptionStatus
+from app.common.models import ActorContext, Role
 from app.llm.errors import LLMNetworkError
 from app.llm.models import LLMResponse, ToolCall
 from app.rag.models import RetrievedDocument
@@ -107,16 +107,6 @@ async def test_medical_question_gets_general_info_and_expert_referral(graph, bui
 
     assert "전문가" in result["answer"]
     assert result["tool_call_count"] == 0
-
-
-async def test_access_guard_does_not_requery_subscription(graph, builder) -> None:
-    builder.user_data._subscriptions[10] = SubscriptionStatus(is_active=False)
-    builder.llm.response = LLMResponse(text="인바디 정보를 안내드립니다.")
-
-    result = await graph.ainvoke(chat_state(message="인바디 알려줘"), config=builder.config())
-
-    assert result["answer"] == "인바디 정보를 안내드립니다."
-    assert ("get_subscription_status", 10) not in builder.user_data.calls
 
 
 async def test_llm_error_propagates_without_retry(graph, builder) -> None:

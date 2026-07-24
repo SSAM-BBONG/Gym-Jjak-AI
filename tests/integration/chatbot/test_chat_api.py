@@ -118,8 +118,8 @@ async def test_chat_message_rejects_blank_message() -> None:
 async def test_chat_message_streams_error_event_for_service_error_code() -> None:
     fake = FakeChatbotService(
         error={
-            "code": "CHATBOT_SUBSCRIPTION_REQUIRED",
-            "message": "활성 구독이 있어야 루틴 추천을 이용할 수 있습니다.",
+            "code": "ROLE_NOT_ALLOWED",
+            "message": "이 기능을 사용할 권한이 없습니다.",
             "request_id": "req-1",
             "retryable": False,
         }
@@ -139,8 +139,8 @@ async def test_chat_message_streams_error_event_for_service_error_code() -> None
         (
             "error",
             {
-                "code": "CHATBOT_SUBSCRIPTION_REQUIRED",
-                "message": "활성 구독이 있어야 루틴 추천을 이용할 수 있습니다.",
+                "code": "ROLE_NOT_ALLOWED",
+                "message": "이 기능을 사용할 권한이 없습니다.",
                 "request_id": "req-1",
                 "retryable": False,
             },

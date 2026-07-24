@@ -7,7 +7,6 @@ from app.common.models import (
     PaymentHistory,
     PtHistory,
     PtUsageSummary,
-    SubscriptionStatus,
     TrainerSubjectAccess,
     WorkoutDiary,
 )
@@ -20,7 +19,6 @@ class FakeUserDataClient:
     def __init__(
         self,
         *,
-        subscriptions: dict[int, SubscriptionStatus] | None = None,
         payment_histories: dict[int, list[PaymentHistory]] | None = None,
         pt_usages: dict[int, PtUsageSummary] | None = None,
         pt_histories: dict[int, list[PtHistory]] | None = None,
@@ -29,7 +27,6 @@ class FakeUserDataClient:
         inbody_records: dict[int, list[InBodyRecord]] | None = None,
         trainer_subject_access: set[tuple[int, int]] | None = None,
     ) -> None:
-        self._subscriptions = subscriptions or {}
         self._payment_histories = payment_histories or {}
         self._pt_usages = pt_usages or {}
         self._pt_histories = pt_histories or {}
@@ -40,11 +37,6 @@ class FakeUserDataClient:
         # (메서드명, 첫 인자) 호출 기록 — "결제/구독 조회가 호출되지 않았다" 같은
         # 부정 조건을 검증하는 테스트에서 사용한다.
         self.calls: list[tuple[str, int]] = []
-
-    async def get_subscription_status(self, user_id: int) -> SubscriptionStatus:
-        """생성자로 받은 subscriptions에서 그대로 반환한다."""
-        self.calls.append(("get_subscription_status", user_id))
-        return self._subscriptions[user_id]
 
     async def get_payment_history(self, user_id: int) -> list[PaymentHistory]:
         """기록이 없으면 빈 리스트를 반환한다."""
