@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     # 빈 기본값은 .env가 없는 테스트/CI 환경에서 import가 깨지지 않기 위한 것이며,
     # 실제 키 검증은 LLM 어댑터 생성 시점에 수행한다.
     gemini_api_key: SecretStr = SecretStr("")
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.6-flash"
     gemini_embedding_model: str = "gemini-embedding-001"
     gemini_max_retries: int = 0
     embedding_dimensions: int = 768
