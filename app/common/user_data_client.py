@@ -18,18 +18,13 @@ from app.common.models import (
     PaymentHistory,
     PtHistory,
     PtUsageSummary,
-    SubscriptionStatus,
     TrainerSubjectAccess,
     WorkoutDiary,
 )
 
 
 class UserDataClient(Protocol):
-    """Spring이 가진 개인 데이터를 읽기 전용으로 조회하는 8개 메서드 계약."""
-
-    async def get_subscription_status(self, user_id: int) -> SubscriptionStatus:
-        """AI 구독 활성 여부를 조회한다."""
-        ...
+    """Spring이 가진 개인 데이터를 읽기 전용으로 조회하는 7개 메서드 계약."""
 
     async def get_payment_history(self, user_id: int) -> list[PaymentHistory]:
         """결제 내역 전체를 조회한다."""
@@ -67,13 +62,8 @@ class UserDataClient(Protocol):
 class InMemoryUserDataClient:
     """Spring HTTP 연동 전 임시 구현체(Deferred Integration Plan 전까지 사용).
 
-    실제 데이터가 없으므로 항상 "값 없음"에 해당하는 결과만 반환한다 — 구독은
-    비활성으로 응답해 챗봇이 CHATBOT_SUBSCRIPTION_REQUIRED로 정직하게 안내하게 하고,
-    트레이너 접근은 항상 거부한다. 실제 서비스 동작을 위해서는 Spring 조회 API를 붙인
-    HTTP 구현체로 교체해야 한다."""
-
-    async def get_subscription_status(self, user_id: int) -> SubscriptionStatus:
-        return SubscriptionStatus(is_active=False)
+    실제 데이터가 없으므로 데이터 조회는 빈 값으로 반환하고, 트레이너 접근은 항상 거부한다.
+    챗봇 구독 권한은 FastAPI가 아닌 Spring이 요청 전달 전에 검증한다."""
 
     async def get_payment_history(self, user_id: int) -> list[PaymentHistory]:
         return []

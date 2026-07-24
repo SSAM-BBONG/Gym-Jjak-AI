@@ -15,7 +15,6 @@ from app.common.models import (
     PaymentHistory,
     PtHistory,
     PtUsageSummary,
-    SubscriptionStatus,
     TrainerSubjectAccess,
     WorkoutDiary,
     WorkoutSet,
@@ -28,9 +27,6 @@ SAMPLE_TRAINER_ID = 20
 
 class LocalDevUserDataClient:
     """어떤 user_id로 조회해도 같은 로컬 샘플 데이터를 반환한다."""
-
-    async def get_subscription_status(self, user_id: int) -> SubscriptionStatus:
-        return SubscriptionStatus(is_active=True, plan_name="로컬 개발 샘플 구독")
 
     async def get_payment_history(self, user_id: int) -> list[PaymentHistory]:
         return [
