@@ -2,6 +2,7 @@
 
 from app.chatbot.prompts import REJECT_MESSAGE
 from app.chatbot.state import IntentClassification
+from app.common.conversation import ConversationContext
 from app.common.models import ActorContext, Role
 from app.llm.errors import LLMNetworkError
 from app.llm.models import LLMResponse, ToolCall
@@ -63,6 +64,45 @@ async def test_natural_language_routine_request_uses_same_service(graph, builder
 
     assert result["route"] == "routine"
     assert result["routine_result"] is not None
+
+
+async def test_greeting_returns_actions_without_llm_or_rag(graph, builder) -> None:
+    builder.llm.structured_response = IntentClassification(intent="reject")
+
+    result = await graph.ainvoke(chat_state(message="안녕"), config=builder.config())
+
+    assert result["route"] == "greeting"
+    assert result.get("quick_replies") is not None
+    assert builder.llm.structured_call_count == 0
+    assert builder.retriever.queries == []
+
+
+async def test_initial_routine_returns_detail_and_goal_quick_replies(graph, builder) -> None:
+    builder.llm.structured_response = sample_routine_result()
+
+    result = await graph.ainvoke(
+        chat_state(message="루틴 추천", intent_hint="ROUTINE_RECOMMENDATION"), config=builder.config()
+    )
+
+    assert result["routine_result"].days
+    assert result.get("quick_replies") is not None
+
+
+async def test_goal_context_returns_days_question_without_llm(graph, builder) -> None:
+    state = chat_state(intent_hint="ROUTINE_RECOMMENDATION")
+    state["contexts"] = [ConversationContext(
+        session_id="session-1",
+        user_id=10,
+        kind="ROUTINE_PREFERENCE",
+        value='{"goal":"MUSCLE_GAIN"}',
+        expires_at=None,
+    )]
+
+    result = await graph.ainvoke(state, config=builder.config())
+
+    assert result.get("routine_result") is None
+    assert result["quick_replies"][0].question_id == "ROUTINE_DAYS_PER_WEEK"
+    assert builder.llm.structured_call_count == 0
 
 
 async def test_unrelated_question_is_politely_rejected(graph, builder) -> None:

@@ -84,10 +84,11 @@ async def test_chat_message_streams_done_event_with_common_response_contract() -
                 "session_id": "019f0000-0000-7000-8000-000000000001",
                 "answer": "환불은 7일 이내 가능합니다.",
                 "category": "SERVICE_POLICY",
-                "routine": None,
-                "sources": [],
-                "limited": False,
-            },
+                    "routine": None,
+                    "sources": [],
+                    "limited": False,
+                    "quick_replies": [],
+                },
         )
     ]
     assert len(fake.received_requests) == 1

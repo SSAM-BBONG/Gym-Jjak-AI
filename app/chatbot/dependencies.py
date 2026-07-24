@@ -1,7 +1,7 @@
 """챗봇/루틴 도메인 조립부. app/core/dependencies.py는 어떤 도메인도 import하지 않는
 단방향 규칙을 지키고, 챗봇 쪽 서비스 조립은 이 파일이 전담한다
 (.docs/MODULE_OWNERSHIP.md §5). Settings -> GeminiAdapter/Embeddings -> Chroma/Retriever
--> UserDataClient/ConversationProvider -> RoutineService -> ChatbotGraph -> ChatbotService
+-> UserDataClient -> RoutineService -> ChatbotGraph -> ChatbotService
 순서로 팩토리를 구성한다. 각 팩토리는 lru_cache로 프로세스당 1회만 생성한다."""
 
 from functools import lru_cache
@@ -9,7 +9,6 @@ from functools import lru_cache
 from app.chatbot.graph import build_chatbot_graph
 from app.chatbot.nodes import ChatbotDeps
 from app.chatbot.service import ChatbotService
-from app.common.conversation import ConversationProvider, InMemoryConversationProvider
 from app.common.dev_user_data import LocalDevUserDataClient
 from app.common.user_data_client import InMemoryUserDataClient, UserDataClient
 from app.core.settings import get_settings
@@ -45,11 +44,6 @@ def get_user_data_client() -> UserDataClient:
 
 
 @lru_cache
-def get_conversation_provider() -> ConversationProvider:
-    return InMemoryConversationProvider()
-
-
-@lru_cache
 def get_retriever() -> RetrieverPort:
     settings = get_settings()
     client = create_chroma_client(settings)
@@ -75,7 +69,6 @@ def get_chatbot_deps() -> ChatbotDeps:
         retriever=get_retriever(),
         user_data=get_user_data_client(),
         routine_service=get_routine_service(),
-        conversation_provider=get_conversation_provider(),
     )
 
 
