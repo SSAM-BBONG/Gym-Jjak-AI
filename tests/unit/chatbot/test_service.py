@@ -13,8 +13,9 @@ from app.chatbot.prompts import REJECT_MESSAGE
 from app.chatbot.schemas import ChatRequest
 from app.chatbot.service import ChatbotService, _split_ready_words
 from app.common.models import ActorContext, Role
-from app.llm.models import LLMResponse, ToolCall
+from app.llm.models import LLMResponse, LLMStreamChunk, ToolCall
 
+from tests.fakes.llm import FakeLLMPort
 from tests.graph.conftest import MEMBER_ID, _Builder, member_actor, sample_routine_result
 
 
@@ -85,6 +86,41 @@ async def test_chat_streams_deltas_before_done_event() -> None:
     assert events[-1][0] == "done"
     delta_texts = [data["text"] for event, data in events if event == "delta"]
     assert "".join(delta_texts) == "환불은 7일 이내 가능합니다."
+
+
+class _MultiChunkStreamLLM(FakeLLMPort):
+    """FakeLLMPort.stream()은 항상 텍스트 전체를 청크 1개로 흘려보내므로, 큐에 여러 항목이
+    쌓이는 상황(어절 중간에서 끊긴 청크)을 검증할 수 없다. 이 가짜는 stream()만 오버라이드해
+    미리 정해둔 여러 조각을 순서대로 델타로 내보낸다."""
+
+    def __init__(self, chunks: list[str]) -> None:
+        super().__init__()
+        self._chunks = chunks
+
+    async def stream(self, messages, tools=None):
+        self.received_messages.append(messages)
+        self.received_tools.append(tools)
+        for chunk in self._chunks:
+            yield LLMStreamChunk(delta=chunk)
+        yield LLMStreamChunk(response=LLMResponse(text="".join(self._chunks)))
+
+
+async def test_chat_rejoins_word_split_across_multiple_queue_items() -> None:
+    """Gemini 청크가 어절 중간에서 끊긴 채(예: "이내"가 별도 청크로) 큐에 여러 번 들어와도
+    ChatbotService.chat()의 누적 버퍼가 이어붙여, delta는 항상 어절 단위로만 나가고
+    전부 합치면 done.answer와 정확히 같아야 한다."""
+    builder = _Builder()
+    builder.llm = _MultiChunkStreamLLM(["환불은 7일 ", "이내", " 가능합니다."])
+    service = build_service(builder)
+
+    events = await _run(service, chat_request())
+
+    delta_texts = [data["text"] for event, data in events if event == "delta"]
+    done = next(data for event, data in events if event == "done")
+
+    assert "".join(delta_texts) == done["answer"]
+    for text in delta_texts:
+        assert len(text.split()) == 1
 
 
 async def test_chat_does_not_persist_via_fastapi_conversation_provider() -> None:
