@@ -218,13 +218,22 @@ class ChatbotService:
             }
             task = asyncio.create_task(self._run_graph_and_signal(initial_state, config, queue))
             done_signal: _StreamDone | None = None
+            # 노드는 LLM 청크나 완성된 문구를 그대로 큐에 넣는다. 프론트가 타이핑 효과를
+            # 적용할 수 있도록 잘게 쪼개는 책임은 여기(소비 측)에만 둔다.
+            pending_text = ""
             try:
                 while done_signal is None:
                     item = await queue.get()
                     if isinstance(item, _StreamDone):
                         done_signal = item
                     else:
-                        yield _sse_event("delta", {"text": item})
+                        ready_words, pending_text = _split_ready_words(pending_text + item)
+                        for word in ready_words:
+                            yield _sse_event("delta", {"text": word})
+                # 마지막 어절은 뒤에 공백이 없어 보류되어 있으므로 반드시 flush한다.
+                # 에러로 끝난 경우에도 이미 생성된 텍스트는 그대로 내보낸다.
+                if pending_text:
+                    yield _sse_event("delta", {"text": pending_text})
             finally:
                 if not task.done():
                     task.cancel()

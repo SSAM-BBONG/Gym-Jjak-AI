@@ -111,27 +111,27 @@ async def test_chat_returns_routine_result_and_limited_flag() -> None:
     assert set(done["routine"]["missing_data"]) == {"workout_diaries", "inbody"}
 
 
-async def test_chat_emits_single_delta_before_done_for_reject_route() -> None:
-    """reject_node는 LLM을 호출하지 않지만, 프론트 경험 일관성을 위해 거절 메시지를
-    delta 이벤트로 한 번은 흘려보낸 뒤 done 이벤트를 내보내야 한다."""
+async def test_chat_streams_reject_message_as_word_deltas() -> None:
+    """reject_node는 LLM을 호출하지 않고 완성된 문구를 큐에 한 번에 넣지만,
+    서비스가 어절 단위로 쪼개 여러 delta로 흘려보낸 뒤 done을 내보내야 한다."""
     builder = _Builder()
     service = build_service(builder)
 
     events = await _run(service, chat_request(message="다른 회원 정보 알려줘"))
 
     assert events[-1][0] == "done"
-    delta_events = [data for event, data in events if event == "delta"]
-    assert len(delta_events) == 1
-    assert delta_events[0]["text"] == REJECT_MESSAGE
+    delta_texts = [data["text"] for event, data in events if event == "delta"]
+    assert len(delta_texts) > 1
+    assert "".join(delta_texts) == REJECT_MESSAGE
 
     done = next(data for event, data in events if event == "done")
     assert done["category"] == "REJECT"
     assert done["answer"] == REJECT_MESSAGE
 
 
-async def test_chat_emits_single_delta_before_done_for_routine_route() -> None:
-    """routine_node도 LLM 스트리밍 없이 구조화 출력만 만들지만, 완성된 요약을
-    delta 이벤트로 한 번은 흘려보낸 뒤 done 이벤트를 내보내야 한다."""
+async def test_chat_streams_routine_answer_as_word_deltas() -> None:
+    """routine_node도 LLM 스트리밍 없이 구조화 출력만 만들지만, 완성된 답변을
+    어절 단위 delta로 흘려보낸 뒤 done 이벤트를 내보내야 한다."""
     builder = _Builder()
     builder.llm.structured_response = sample_routine_result()
     service = build_service(builder)
@@ -139,12 +139,12 @@ async def test_chat_emits_single_delta_before_done_for_routine_route() -> None:
     events = await _run(service, chat_request(message="루틴 추천해줘"))
 
     assert events[-1][0] == "done"
-    delta_events = [data for event, data in events if event == "delta"]
-    assert len(delta_events) == 1
+    delta_texts = [data["text"] for event, data in events if event == "delta"]
+    assert len(delta_texts) > 1
 
     done = next(data for event, data in events if event == "done")
     assert done["category"] == "ROUTINE"
-    assert delta_events[0]["text"] == done["answer"]
+    assert "".join(delta_texts) == done["answer"]
     assert done["quick_replies"][0]["question_id"] == "ROUTINE_GOAL"
 
 
