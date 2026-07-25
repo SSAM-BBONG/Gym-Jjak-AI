@@ -29,18 +29,21 @@ ChatbotService.chat()
 ## 분할 알고리즘
 
 ```python
-_WORD_PATTERN = re.compile(r"\S+\s*")
+# 선행 공백까지 포함해 매칭해야 어절 사이 공백이 유실되지 않는다.
+_WORD_PATTERN = re.compile(r"\s*\S+\s*")
 
 def _split_ready_words(buffer: str) -> tuple[list[str], str]:
     """buffer를 어절(공백/개행 포함) 단위로 쪼갠다. 마지막 조각이 공백으로
     끝나지 않으면 다음 청크와 이어질 수 있는 미완성 어절이므로 보류한다."""
-    matches = list(_WORD_PATTERN.finditer(buffer))
-    if not matches:
+    words = [m.group() for m in _WORD_PATTERN.finditer(buffer)]
+    if not words:
         return [], buffer
-    if not matches[-1].group().endswith((" ", "\n", "\t")):
-        return [m.group() for m in matches[:-1]], matches[-1].group()
-    return [m.group() for m in matches], ""
+    if not words[-1][-1].isspace():
+        return words[:-1], words[-1]
+    return words, ""
 ```
+
+**손실 없음 불변식:** `"".join(words) + pending == buffer`가 항상 성립해야 한다. 패턴 앞의 `\s*`가 없으면 버퍼가 공백으로 시작할 때(예: 이전 청크가 `"   "`만 남긴 경우) 그 공백이 매칭에서 빠져 조용히 유실된다. 마지막 글자 판정은 `.endswith((" ", "\n"))` 대신 `.isspace()`를 써서 `\r`이나 전각 공백 같은 다른 공백 문자도 동일하게 처리한다.
 
 `pending_text`는 `chat()` 호출(요청) 범위의 지역 변수로 유지한다 — 요청 간 공유되지 않는다.
 
@@ -61,8 +64,9 @@ if pending_text:
 
 ## 영향 범위
 
-- 변경 파일: `app/chatbot/service.py` 1개만 수정 (정규식 상수 + `_split_ready_words` 헬퍼 + `chat()` 루프 수정).
-- 노드(`nodes.py`), LLM 포트/어댑터, 라우터, 스키마, SSE 이벤트 포맷 문서(`docs/API.md` 등)는 변경 없음 — delta 이벤트 스키마(`{"text": str}`)는 그대로 유지되고 빈도만 바뀐다.
+- 코드 변경 파일: `app/chatbot/service.py` 1개만 수정 (정규식 상수 + `_split_ready_words` 헬퍼 + `chat()` 루프 수정).
+- 문서 변경: `.docs/ARCHITECTURE.md`의 "📡 SSE 스트리밍 응답" 절. 현재 `routine_node`/`reject_node`가 완성된 답변을 "**단일 delta**로 한 번" 보낸다고 명시되어 있는데, 이 변경 이후에는 사실이 아니게 되므로 갱신이 필요하다. `agent_node`/`rag_node` 설명도 "노드는 Gemini 청크를 그대로 큐에 넣고, 서비스가 어절 단위로 재분할한다"는 점을 반영한다.
+- 노드(`nodes.py`), LLM 포트/어댑터, 라우터, 스키마는 변경 없음 — delta 이벤트 스키마(`{"text": str}`)는 그대로 유지되고 빈도만 바뀐다. Spring 계약(`done.answer`를 delta 뒤에 이어붙이지 않는다)도 그대로 유효하다.
 
 ## 테스트 영향
 
