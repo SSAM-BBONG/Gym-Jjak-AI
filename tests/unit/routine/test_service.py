@@ -2,7 +2,6 @@ from datetime import date
 
 import pytest
 
-from app.common.exceptions import SubjectAccessDeniedError
 from app.common.models import ActorContext, OnboardingProfile, Role
 from app.rag.models import RetrievedDocument
 from app.routine.analyzer import WorkoutAnalyzer
@@ -12,6 +11,8 @@ from app.routine.schemas import (
     RoutineExercise,
     RoutineRequest,
     RoutineResult,
+    TrainerRoutineProfile,
+    TrainerRoutineRequest,
 )
 from app.routine.service import RoutineService
 from tests.fakes.llm import FakeLLMPort
@@ -33,6 +34,27 @@ def trainer_actor() -> ActorContext:
 
 def routine_request(message: str = "주 3회 전신 루틴 추천해줘") -> RoutineRequest:
     return RoutineRequest(message=message)
+
+
+def trainer_routine_request(*, workouts=None) -> TrainerRoutineRequest:
+    return TrainerRoutineRequest(
+        subject_user_id=_MEMBER_ID,
+        profile=TrainerRoutineProfile(
+            gender="MALE",
+            age=28,
+            height_cm="175.5",
+            weight_kg="72.3",
+            goal="MUSCLE_GAIN",
+        ),
+        workouts=workouts if workouts is not None else [
+            workout_diary(
+                diary_date=date.today(),
+                part="CHEST",
+                exercise="벤치프레스",
+                sets=[workout_set(1, 40, 10)],
+            )
+        ],
+    )
 
 
 def sample_routine_result(status: str = "COMPLETE") -> RoutineResult:
@@ -146,28 +168,20 @@ async def test_trainer_role_cannot_use_member_path() -> None:
         await service.recommend_for_member(actor=trainer_actor(), request=routine_request())
 
 
-async def test_trainer_routine_checks_relationship_before_anything_else() -> None:
-    service, user_data, _, llm = build_routine_service(trainer_access=set())
-
-    with pytest.raises(SubjectAccessDeniedError):
-        await service.recommend_for_trainer(actor=trainer_actor(), subject_user_id=_MEMBER_ID)
-
-    assert llm.structured_call_count == 0
-
-
-async def test_trainer_routine_does_not_query_payment() -> None:
+async def test_trainer_routine_uses_only_supplied_snapshot() -> None:
     service, user_data, _, llm = build_routine_service()
 
-    result = await service.recommend_for_trainer(actor=trainer_actor(), subject_user_id=_MEMBER_ID)
+    result = await service.recommend_for_trainer(request=trainer_routine_request())
 
     assert result.status == "COMPLETE"
-    assert not any(call[0] == "get_payment_history" for call in user_data.calls)
+    assert llm.structured_call_count == 1
+    assert user_data.calls == []
 
 
 async def test_trainer_prompt_is_more_detailed_than_member_prompt() -> None:
     service, _, _, llm = build_routine_service()
 
-    await service.recommend_for_trainer(actor=trainer_actor(), subject_user_id=_MEMBER_ID)
+    await service.recommend_for_trainer(request=trainer_routine_request())
     trainer_prompt = llm.structured_prompts[-1]
 
     llm.structured_prompts.clear()
@@ -178,8 +192,10 @@ async def test_trainer_prompt_is_more_detailed_than_member_prompt() -> None:
     assert "트레이너용 상세 분석" not in member_prompt
 
 
-async def test_member_with_only_user_role_cannot_use_trainer_path() -> None:
+async def test_trainer_routine_without_workouts_returns_limited_result() -> None:
     service, _, _, _ = build_routine_service()
 
-    with pytest.raises(ActorRoleNotAllowedError):
-        await service.recommend_for_trainer(actor=member_actor(), subject_user_id=_MEMBER_ID)
+    result = await service.recommend_for_trainer(request=trainer_routine_request(workouts=[]))
+
+    assert result.status == "LIMITED"
+    assert result.missing_data == ["workout_diaries"]

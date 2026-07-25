@@ -6,6 +6,7 @@ import json
 from app.common.models import OnboardingProfile
 from app.rag.models import RetrievedDocument
 from app.routine.analyzer import InBodyTrend, WorkoutAnalysisResult
+from app.routine.schemas import TrainerRoutineProfile
 
 _SHARED_RULES = (
     "당신은 Gym-Jjak 피트니스 앱의 루틴 추천 도우미입니다. 다음 규칙을 반드시 지키세요.\n"
@@ -82,7 +83,7 @@ def build_member_routine_prompt(
 def build_trainer_routine_prompt(
     *,
     subject_user_id: int,
-    onboarding: OnboardingProfile | None,
+    profile: TrainerRoutineProfile,
     analysis: WorkoutAnalysisResult,
     inbody_trend: InBodyTrend,
     documents: list[RetrievedDocument],
@@ -93,7 +94,8 @@ def build_trainer_routine_prompt(
         f"[트레이너용 상세 분석 요청]\n"
         f"담당 회원(user_id={subject_user_id})의 루틴을 회원용보다 더 상세한 분석 근거"
         f"(운동량 수치, 부위별 빈도, 인바디 추세, 구성 이유)와 함께 작성하세요.\n\n"
-        f"[온보딩 정보]\n{_format_onboarding(onboarding)}\n\n"
+        f"[트레이너 입력 프로필 - 저장하지 않는 일회성 정보]\n"
+        f"{json.dumps(profile.model_dump(mode='json'), ensure_ascii=False)}\n\n"
         f"[회원 실제 기록 - 결정론적 계산 결과]\n{_format_analysis(analysis, inbody_trend)}\n\n"
         f"[참고 문서]\n{_format_documents(documents)}"
     )

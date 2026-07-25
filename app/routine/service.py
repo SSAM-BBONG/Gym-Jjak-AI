@@ -16,7 +16,7 @@ from app.routine.analyzer import WorkoutAnalyzer, analyze_inbody_trend
 from app.routine.exceptions import ActorRoleNotAllowedError
 from app.routine.prompts import build_member_routine_prompt, build_trainer_routine_prompt
 from app.routine.safety import assess_safety
-from app.routine.schemas import RoutineRequest, RoutineResult, SourceReference
+from app.routine.schemas import RoutineRequest, RoutineResult, SourceReference, TrainerRoutineRequest
 
 _TRAINER_DEFAULT_QUERY = "루틴 추천"
 
@@ -78,31 +78,18 @@ class RoutineService:
         result = await self._llm.generate_structured(prompt=prompt, output_schema=RoutineResult)
         return self._finalize(result, missing_data=missing_data, documents=documents, extra_caution=safety.caution)
 
-    async def recommend_for_trainer(
-        self, *, actor: ActorContext, subject_user_id: int
-    ) -> RoutineResult:
-        """트레이너용 상세 루틴 분석. 담당 회원 관계를 확인한 뒤 결제/구독 정보 없이 진행한다."""
-        if actor.role != Role.TRAINER:
-            raise ActorRoleNotAllowedError()
-
-        await self._user_data.assert_trainer_can_access(
-            trainer_id=actor.user_id, subject_user_id=subject_user_id
-        )
-
-        onboarding = await self._user_data.get_onboarding(subject_user_id)
-        workouts = await self._user_data.get_recent_workouts(subject_user_id)
-        inbody = await self._user_data.get_recent_inbody(subject_user_id)
-
-        missing_data = self._missing_data(workouts, inbody)
-        analysis = self._analyzer.analyze(workouts)
-        inbody_trend = analyze_inbody_trend(inbody)
+    async def recommend_for_trainer(self, *, request: TrainerRoutineRequest) -> RoutineResult:
+        """Spring이 전달한 프로필·운동일지 스냅샷만 사용한다. 개인 데이터 재조회는 하지 않는다."""
+        missing_data = ["workout_diaries"] if not request.workouts else []
+        analysis = self._analyzer.analyze(request.workouts)
+        inbody_trend = analyze_inbody_trend([])
         documents = await self._retriever.search(
             _TRAINER_DEFAULT_QUERY, category="routine", keywords=[], top_k=3
         )
 
         prompt = build_trainer_routine_prompt(
-            subject_user_id=subject_user_id,
-            onboarding=onboarding,
+            subject_user_id=request.subject_user_id,
+            profile=request.profile,
             analysis=analysis,
             inbody_trend=inbody_trend,
             documents=documents,

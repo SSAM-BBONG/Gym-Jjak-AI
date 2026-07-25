@@ -28,7 +28,24 @@ def _sample_result() -> RoutineResult:
 
 
 def _payload(**overrides) -> dict:
-    payload = {"actor": {"user_id": 20, "role": "TRAINER"}, "subject_user_id": 10}
+    payload = {
+        "subject_user_id": 10,
+        "profile": {
+            "gender": "MALE",
+            "age": 28,
+            "height_cm": "175.5",
+            "weight_kg": "72.3",
+            "goal": "MUSCLE_GAIN",
+        },
+        "workouts": [
+            {
+                "diary_date": "2026-07-25",
+                "part": "CHEST",
+                "exercise": "Bench Press",
+                "sets": [{"set_number": 1, "weight": "60", "reps": 10}],
+            }
+        ],
+    }
     payload.update(overrides)
     return payload
 
@@ -39,8 +56,8 @@ class FakeRoutineService:
         self.error = error
         self.received: list = []
 
-    async def recommend_for_trainer(self, *, actor, subject_user_id):
-        self.received.append((actor, subject_user_id))
+    async def recommend_for_trainer(self, *, request):
+        self.received.append(request)
         if self.error:
             raise self.error
         return self.result
@@ -59,7 +76,9 @@ async def test_trainer_routine_analysis_returns_result() -> None:
 
     assert response.status_code == 200
     assert response.json()["title"] == "상세 루틴"
-    assert fake.received == [(fake.received[0][0], 10)]
+    assert fake.received[0].subject_user_id == 10
+    assert fake.received[0].profile.goal == "MUSCLE_GAIN"
+    assert fake.received[0].workouts[0].exercise == "Bench Press"
 
 
 async def test_trainer_routine_analysis_requires_subject_user_id() -> None:
@@ -67,7 +86,7 @@ async def test_trainer_routine_analysis_requires_subject_user_id() -> None:
         response = await client.post(
             "/api/v1/routines/trainer-analysis",
             headers=_HEADERS,
-            json={"actor": {"user_id": 20, "role": "TRAINER"}},
+            json={"profile": _payload()["profile"], "workouts": []},
         )
 
     assert response.status_code == 422
