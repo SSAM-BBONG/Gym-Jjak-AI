@@ -1,14 +1,49 @@
 """계획서 Task 11의 대표 시나리오 10개."""
 
+from datetime import date
+
 from app.chatbot.prompts import REJECT_MESSAGE
 from app.chatbot.state import IntentClassification
 from app.common.conversation import ConversationContext
-from app.common.models import ActorContext, Role
+from app.common.models import (
+    ActorContext,
+    ChatbotOnboardingSnapshot,
+    ChatbotPersonalData,
+    ChatbotWorkoutSummary,
+    Role,
+    WorkoutDiary,
+    WorkoutSet,
+)
 from app.llm.errors import LLMNetworkError
 from app.llm.models import LLMResponse, ToolCall
 from app.rag.models import RetrievedDocument
 
 from .conftest import chat_state, member_actor, sample_routine_result
+
+
+def chatbot_personal_data() -> ChatbotPersonalData:
+    return ChatbotPersonalData(
+        onboarding=ChatbotOnboardingSnapshot(
+            exercise_goal="MUSCLE_GAIN",
+            exercise_period="OVER_6_MONTHS",
+            exercise_frequency="THREE_TO_FOUR",
+            preferred_exercise="WEIGHT_TRAINING",
+        ),
+        recent_workouts=[
+            WorkoutDiary(
+                diary_date=date.today(),
+                part="CHEST",
+                exercise="Bench Press",
+                sets=[WorkoutSet(set_number=1, weight=60, reps=10)],
+            )
+        ],
+        workout_summary=ChatbotWorkoutSummary(
+            period_days=28,
+            workout_days=3,
+            part_session_counts={"CHEST": 2, "BACK": 1},
+            part_total_volume_kg={"CHEST": 3600, "BACK": 1800},
+        ),
+    )
 
 
 async def test_service_policy_question_uses_rag_and_returns_sources(graph, builder) -> None:
@@ -55,6 +90,18 @@ async def test_routine_button_bypasses_intent_llm(graph, builder) -> None:
     assert result["route"] == "routine"
     assert result["routine_result"] is not None
     assert result["llm_call_count"] == 1
+
+
+async def test_chatbot_routine_passes_spring_personal_data_to_routine_service(graph, builder) -> None:
+    builder.llm.structured_response = sample_routine_result()
+    state = chat_state(intent_hint="ROUTINE_RECOMMENDATION")
+    state["personal_data"] = chatbot_personal_data()
+
+    result = await graph.ainvoke(state, config=builder.config())
+
+    assert result["routine_result"] is not None
+    assert builder.user_data.calls == []
+    assert '"workout_days": 3' in builder.llm.structured_prompts[-1]
 
 
 async def test_natural_language_routine_request_uses_same_service(graph, builder) -> None:

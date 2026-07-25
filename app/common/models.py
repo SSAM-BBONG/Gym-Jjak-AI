@@ -57,6 +57,33 @@ class InBodyRecord(BaseModel):
     skeletal_muscle_mass: Decimal | None = None
 
 
+class ChatbotOnboardingSnapshot(BaseModel):
+    """Spring이 챗봇 루틴 추천 요청마다 전달하는 온보딩 값."""
+
+    exercise_goal: str | None = None
+    exercise_period: str | None = None
+    exercise_frequency: str | None = None
+    preferred_exercise: str | None = None
+
+
+class ChatbotWorkoutSummary(BaseModel):
+    """상세 운동 30건과 별도로 전달되는 28일 전체 운동 집계."""
+
+    period_days: int
+    workout_days: int
+    part_session_counts: dict[str, int]
+    part_total_volume_kg: dict[str, Decimal]
+
+
+class ChatbotPersonalData(BaseModel):
+    """Spring이 소유·조회한 챗봇 루틴 추천용 개인 데이터 스냅샷."""
+
+    onboarding: ChatbotOnboardingSnapshot | None = None
+    recent_workouts: list[WorkoutDiary] = []
+    workout_summary: ChatbotWorkoutSummary | None = None
+    inbodies: list[InBodyRecord] = []
+
+
 class PaymentHistory(BaseModel):
     """결제 내역 1건."""
 

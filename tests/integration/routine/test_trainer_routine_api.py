@@ -37,7 +37,7 @@ def _payload(**overrides) -> dict:
             "weight_kg": "72.3",
             "goal": "MUSCLE_GAIN",
         },
-        "workouts": [
+        "recent_workouts": [
             {
                 "diary_date": "2026-07-25",
                 "part": "CHEST",
@@ -45,6 +45,12 @@ def _payload(**overrides) -> dict:
                 "sets": [{"set_number": 1, "weight": "60", "reps": 10}],
             }
         ],
+        "workout_summary": {
+            "period_days": 28,
+            "workout_days": 1,
+            "part_session_counts": {"CHEST": 1},
+            "part_total_volume_kg": {"CHEST": "600"},
+        },
     }
     payload.update(overrides)
     return payload
@@ -78,7 +84,7 @@ async def test_trainer_routine_analysis_returns_result() -> None:
     assert response.json()["title"] == "상세 루틴"
     assert fake.received[0].subject_user_id == 10
     assert fake.received[0].profile.goal == "MUSCLE_GAIN"
-    assert fake.received[0].workouts[0].exercise == "Bench Press"
+    assert fake.received[0].recent_workouts[0].exercise == "Bench Press"
 
 
 async def test_trainer_routine_analysis_requires_subject_user_id() -> None:
@@ -86,7 +92,7 @@ async def test_trainer_routine_analysis_requires_subject_user_id() -> None:
         response = await client.post(
             "/api/v1/routines/trainer-analysis",
             headers=_HEADERS,
-            json={"profile": _payload()["profile"], "workouts": []},
+            json={"profile": _payload()["profile"], "recent_workouts": [], "workout_summary": _payload()["workout_summary"]},
         )
 
     assert response.status_code == 422

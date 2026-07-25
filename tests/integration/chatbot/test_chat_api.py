@@ -116,6 +116,58 @@ async def test_chat_message_rejects_blank_message() -> None:
     assert response.json()["code"] == "REQUEST_VALIDATION_ERROR"
 
 
+async def test_chat_message_parses_spring_personal_data_snapshot() -> None:
+    fake = FakeChatbotService(
+        done=ChatResponse(
+            request_id="req-1", session_id="019f0000-0000-7000-8000-000000000001",
+            answer="ok", category="ROUTINE",
+        )
+    )
+    app.dependency_overrides[get_chatbot_service] = lambda: fake
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post(
+                "/api/v1/chatbot/messages",
+                headers=_HEADERS,
+                json=_payload(
+                    intent_hint="ROUTINE_RECOMMENDATION",
+                    personal_data={
+                        "onboarding": {
+                            "exercise_goal": "MUSCLE_GAIN",
+                            "exercise_period": "OVER_6_MONTHS",
+                            "exercise_frequency": "THREE_TO_FOUR",
+                            "preferred_exercise": "WEIGHT_TRAINING",
+                        },
+                        "recent_workouts": [{
+                            "diary_date": "2026-07-25",
+                            "part": "CHEST",
+                            "exercise": "Bench Press",
+                            "sets": [{"set_number": 1, "weight": 60, "reps": 10}],
+                        }],
+                        "workout_summary": {
+                            "period_days": 28,
+                            "workout_days": 3,
+                            "part_session_counts": {"CHEST": 2, "BACK": 1},
+                            "part_total_volume_kg": {"CHEST": 3600, "BACK": 1800},
+                        },
+                        "inbodies": [{
+                            "measured_at": "2026-07-01",
+                            "weight": 70,
+                            "body_fat_percentage": 20,
+                            "skeletal_muscle_mass": 30,
+                        }],
+                    },
+                ),
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    request = fake.received_requests[0]
+    assert request.personal_data.workout_summary.period_days == 28
+    assert request.personal_data.recent_workouts[0].exercise == "Bench Press"
+
+
 async def test_chat_message_streams_error_event_for_service_error_code() -> None:
     fake = FakeChatbotService(
         error={

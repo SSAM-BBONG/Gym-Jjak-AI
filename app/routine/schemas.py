@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app.common.models import WorkoutDiary
+from app.common.models import ChatbotPersonalData, ChatbotWorkoutSummary, WorkoutDiary
 
 
 class TrainerRoutineProfile(BaseModel):
@@ -23,7 +23,8 @@ class TrainerRoutineRequest(BaseModel):
 
     subject_user_id: int = Field(gt=0)
     profile: TrainerRoutineProfile
-    workouts: list[WorkoutDiary]
+    recent_workouts: list[WorkoutDiary]
+    workout_summary: ChatbotWorkoutSummary
 
 
 class SourceReference(BaseModel):
@@ -38,6 +39,7 @@ class RoutineRequest(BaseModel):
     """회원 루틴 추천 요청. 자유 텍스트 메시지 하나로 안전검사와 프롬프트에 모두 사용한다."""
 
     message: str
+    personal_data: ChatbotPersonalData | None = None
 
 
 class RoutineExercise(BaseModel):

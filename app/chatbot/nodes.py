@@ -243,7 +243,12 @@ async def routine_node(state: ChatState, config: RunnableConfig) -> dict:
         }
 
     result = await deps.routine_service.recommend_for_member(
-        actor=state["actor"], request=RoutineRequest(message=state["message"])
+        actor=state["actor"],
+        # The snapshot is request-scoped and has already been authorized and assembled by Spring.
+        request=RoutineRequest(
+            message=state["message"],
+            personal_data=state.get("personal_data"),
+        ),
     )
     answer = result.summary if not replies else f"{result.summary}\n\n{question_text(replies)}"
     await _stream_queue(config).put(answer)

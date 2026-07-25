@@ -7,7 +7,16 @@
 조회(결제·구독은 조회하지 않음) -> 상세 분석용 프롬프트로 LLM 구조화 출력 1회.
 """
 
-from app.common.models import ActorContext, InBodyRecord, Role, WorkoutDiary
+from app.common.models import (
+    ActorContext,
+    ChatbotOnboardingSnapshot,
+    ChatbotPersonalData,
+    ChatbotWorkoutSummary,
+    InBodyRecord,
+    OnboardingProfile,
+    Role,
+    WorkoutDiary,
+)
 from app.common.user_data_client import UserDataClient
 from app.llm.port import LLMPort
 from app.rag.models import RetrievedDocument
@@ -56,9 +65,10 @@ class RoutineService:
                 sources=[],
             )
 
-        onboarding = await self._user_data.get_onboarding(actor.user_id)
-        workouts = await self._user_data.get_recent_workouts(actor.user_id)
-        inbody = await self._user_data.get_recent_inbody(actor.user_id)
+        onboarding, workouts, inbody, workout_summary = await self._load_member_data(
+            user_id=actor.user_id,
+            personal_data=request.personal_data,
+        )
 
         missing_data = self._missing_data(workouts, inbody)
         analysis = self._analyzer.analyze(workouts)
@@ -74,14 +84,43 @@ class RoutineService:
             inbody_trend=inbody_trend,
             documents=documents,
             safety_caution=safety.caution,
+            workout_summary=workout_summary,
         )
         result = await self._llm.generate_structured(prompt=prompt, output_schema=RoutineResult)
         return self._finalize(result, missing_data=missing_data, documents=documents, extra_caution=safety.caution)
 
+    # Uses Spring's request-scoped snapshot when available and keeps the old lookup only for rolling deployment.
+    async def _load_member_data(
+        self,
+        *,
+        user_id: int,
+        personal_data: ChatbotPersonalData | None,
+    ) -> tuple[
+        OnboardingProfile | ChatbotOnboardingSnapshot | None,
+        list[WorkoutDiary],
+        list[InBodyRecord],
+        ChatbotWorkoutSummary | None,
+    ]:
+        if personal_data is not None:
+            # Detailed workouts are capped by Spring; the separate summary remains the 28-day source of truth.
+            return (
+                personal_data.onboarding,
+                personal_data.recent_workouts,
+                personal_data.inbodies,
+                personal_data.workout_summary,
+            )
+
+        return (
+            await self._user_data.get_onboarding(user_id),
+            await self._user_data.get_recent_workouts(user_id),
+            await self._user_data.get_recent_inbody(user_id),
+            None,
+        )
+
     async def recommend_for_trainer(self, *, request: TrainerRoutineRequest) -> RoutineResult:
         """Spring이 전달한 프로필·운동일지 스냅샷만 사용한다. 개인 데이터 재조회는 하지 않는다."""
-        missing_data = ["workout_diaries"] if not request.workouts else []
-        analysis = self._analyzer.analyze(request.workouts)
+        missing_data = ["workout_diaries"] if not request.recent_workouts else []
+        analysis = self._analyzer.analyze(request.recent_workouts)
         inbody_trend = analyze_inbody_trend([])
         documents = await self._retriever.search(
             _TRAINER_DEFAULT_QUERY, category="routine", keywords=[], top_k=3
@@ -93,6 +132,7 @@ class RoutineService:
             analysis=analysis,
             inbody_trend=inbody_trend,
             documents=documents,
+            workout_summary=request.workout_summary,
         )
         result = await self._llm.generate_structured(prompt=prompt, output_schema=RoutineResult)
         return self._finalize(result, missing_data=missing_data, documents=documents, extra_caution=None)
