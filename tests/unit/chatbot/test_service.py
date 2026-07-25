@@ -11,7 +11,7 @@ from app.chatbot.graph import build_chatbot_graph
 from app.chatbot.nodes import ChatbotDeps
 from app.chatbot.prompts import REJECT_MESSAGE
 from app.chatbot.schemas import ChatRequest
-from app.chatbot.service import ChatbotService
+from app.chatbot.service import ChatbotService, _split_ready_words
 from app.common.models import ActorContext, Role
 from app.llm.models import LLMResponse, ToolCall
 
@@ -219,3 +219,38 @@ async def test_chat_emits_llm_call_limit_exceeded_error_event(respx_mock) -> Non
     event, data = events[0]
     assert event == "error"
     assert data["code"] == "LLM_CALL_LIMIT_EXCEEDED"
+
+
+def test_split_ready_words_holds_incomplete_last_word() -> None:
+    """마지막 조각이 공백으로 끝나지 않으면 다음 청크와 이어질 수 있으므로 보류한다."""
+    words, pending = _split_ready_words("안녕하세요 오늘은")
+
+    assert words == ["안녕하세요 "]
+    assert pending == "오늘은"
+
+
+def test_split_ready_words_emits_all_when_buffer_ends_with_whitespace() -> None:
+    """버퍼가 공백으로 끝나면 모든 어절이 완성된 것이므로 전부 내보낸다."""
+    words, pending = _split_ready_words("안녕 반가워 ")
+
+    assert words == ["안녕 ", "반가워 "]
+    assert pending == ""
+
+
+def test_split_ready_words_rejoins_word_split_across_chunks() -> None:
+    """Gemini 청크는 어절 중간에서 끊길 수 있다. 버퍼를 이어붙이면
+    원래 어절 경계에서만 delta가 나가야 한다."""
+    words, pending = _split_ready_words("오늘은 운동")
+    assert words == ["오늘은 "]
+    assert pending == "운동"
+
+    words, pending = _split_ready_words(pending + "을 하고")
+    assert words == ["운동을 "]
+    assert pending == "하고"
+
+
+def test_split_ready_words_never_drops_characters() -> None:
+    """어절 목록과 남은 버퍼를 합치면 항상 원본과 같아야 한다(선행 공백·개행 포함)."""
+    for buffer in ["", "   ", "  안녕", "첫 줄\n둘째 줄", "끝에 공백 두 개  "]:
+        words, pending = _split_ready_words(buffer)
+        assert "".join(words) + pending == buffer

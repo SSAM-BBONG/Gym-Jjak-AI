@@ -10,6 +10,7 @@ error 이벤트로 통일한다 — 스트림은 이미 200으로 시작했으�
 import asyncio
 import json
 import logging
+import re
 from typing import AsyncIterator
 
 import httpx
@@ -48,6 +49,25 @@ _LLM_ERROR_RETRYABLE = {
     "LLM_RATE_LIMITED": True,
     "LLM_INVALID_RESPONSE": False,
 }
+
+
+# 선행 공백까지 포함해 매칭해야 어절 사이 공백이 유실되지 않는다.
+_WORD_PATTERN = re.compile(r"\s*\S+\s*")
+
+
+def _split_ready_words(buffer: str) -> tuple[list[str], str]:
+    """누적 버퍼를 어절 단위로 쪼개 (즉시 내보낼 어절, 남길 버퍼)를 반환한다.
+
+    LLM 스트리밍 청크는 어절 중간에서 끊길 수 있으므로(예: "운동" + "을 하고"),
+    공백으로 끝나지 않는 마지막 조각은 미완성 어절로 보고 다음 청크와 이어붙이도록
+    남긴다. 반환값을 이어붙이면 항상 입력 buffer와 정확히 같다 — delta를 전부
+    합치면 원본 답변이 되어야 하는 계약을 이 함수가 지킨다."""
+    words = [m.group() for m in _WORD_PATTERN.finditer(buffer)]
+    if not words:
+        return [], buffer
+    if not words[-1][-1].isspace():
+        return words[:-1], words[-1]
+    return words, ""
 
 
 def _sse_event(event: str, data: dict) -> str:
