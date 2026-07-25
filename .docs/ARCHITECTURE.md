@@ -423,9 +423,10 @@ sequenceDiagram
     end
 ```
 
-- `agent_node`(개인 이용정보)와 `rag_node`(정책 RAG)는 Gemini 텍스트를 `LLMPort.stream()`으로 호출해 실제 토큰 단위 델타를 큐에 흘려보낸다.
-- `routine_node`(루틴 추천)와 `reject_node`(정중한 거절)는 Gemini 구조화 출력 또는 고정 문구라 토큰 스트리밍이 불가능하므로, 완성된 답변을 **단일 delta**로 한 번 흘려보낸 뒤 곧바로 `done`으로 마무리한다 — 모든 라우트가 "delta 최소 1개 이상 → done" 순서를 지키도록 통일했다.
-- `done` 이벤트의 `answer` 필드는 항상 **완성된 전체 텍스트**다. Spring은 이미 흘려보낸 delta들 뒤에 `done.answer`를 다시 이어붙이면 안 된다(중복 표시 방지) — `done.answer`는 저장/로그용 최종 텍스트로만 사용한다.
+- `agent_node`(개인 이용정보)와 `rag_node`(정책 RAG)는 Gemini 텍스트를 `LLMPort.stream()`으로 호출해 받은 청크를 그대로 큐에 흘려보낸다.
+- `routine_node`(루틴 추천), `reject_node`(정중한 거절), `greeting_node`(인사 응답)는 Gemini 구조화 출력 또는 고정 문구라 토큰 스트리밍이 불가능하므로, 완성된 답변을 통째로 큐에 한 번 넣는다.
+- **어절 단위 재분할(2026-07-25):** 노드가 큐에 넣는 조각의 크기는 라우트마다 제각각이므로, `ChatbotService.chat()`이 큐에서 꺼낸 텍스트를 누적 버퍼에 모았다가 **어절(공백) 단위로 쪼개** delta로 내보낸다(`_split_ready_words`). Gemini 청크가 어절 중간에서 끊겨도(예: `"운동"` + `"을 하고"`) 버퍼가 이어 붙여 주므로 항상 올바른 어절 경계에서만 delta가 나간다. 프론트엔드가 타이핑 효과를 적용하기 쉽도록 한 요청에 따른 변경이며, 모든 라우트가 "delta 최소 1개 이상 → done" 순서를 지키는 점은 동일하다. 정상 스트리밍 경로에서는 전송된 delta들의 `text`를 순서대로 이어붙이면 `done.answer`와 정확히 같다.
+- 다만 이 일치는 절대적이지 않다. LLM이 빈 텍스트를 반환하면(안전 차단, MAX_TOKENS 등) `nodes.py`의 `if chunk.delta:` 가드에 걸려 큐에 아무것도 들어가지 않아 **delta가 0개**인 채로 `answer`에는 대체 문구(`_FALLBACK_ANSWER`)가 채워질 수 있고, Function Calling 중간 턴이 남긴 텍스트는 최종 `answer`에 포함되지 않을 수도 있다. `done` 이벤트의 `answer` 필드는 항상 **완성된 전체 텍스트**다. Spring은 이미 흘려보낸 delta들 뒤에 `done.answer`를 다시 이어붙이면 안 되지만(중복 표시 방지), **delta가 한 건도 오지 않은 채 done만 온 경우에는 빈 말풍선을 보여주지 않도록 반드시 `done.answer`를 표시해야 한다** — `done.answer`는 그 외에는 저장/로그용 최종 텍스트로만 사용한다.
 - 에러 통일 원칙: access_guard 실패(구독 만료 등), `LLM_CALL_LIMIT_EXCEEDED`, 요청 타임아웃, 대화 이력(`conversation_provider`) 조회 실패를 포함한 **모든 실패 경로**가 예외를 던지는 대신 `error` 이벤트로 변환된다. 스트림이 이미 200으로 열린 뒤에는 HTTP status를 바꿀 수 없기 때문이며, 사용자가 명시적으로 선택한 단순화다.
 - 구현은 `ChatbotService.chat()` 안에서 그래프 실행(`graph.ainvoke`)을 백그라운드 `asyncio.Task`로 돌리고, `asyncio.Queue` + 종료 신호(`_StreamDone` sentinel)로 델타 이벤트와 종료 이벤트를 구분한다. 클라이언트(Spring) 연결이 끊기면 `finally`에서 백그라운드 task를 취소해 불필요한 LLM 호출을 막는다.
 - LangGraph의 노드 구성(`access_guard → intent_router → agent_node/rag_node/routine_node/reject_node → format_node → persist_node`)과 조건부 라우팅은 스트리밍 도입 전과 완전히 동일하다 — 각 노드가 LLM을 호출하는 지점만 스트리밍 방식으로 바뀌었다.
@@ -468,3 +469,4 @@ sequenceDiagram
 | 2026-07-22 | 챗봇 응답 SSE 스트리밍 전환 반영: "SSE Streaming" 행 구현 완료로 갱신, "📡 SSE 스트리밍 응답" 절 신규 추가, "🔄 요청 처리 흐름" 최종 노드를 SSE 이벤트로 갱신, 기존 "📦 응답 형식"을 `done` 이벤트 payload 설명으로 재정리 |
 | 2026-07-22 | "🔒 시스템 경계"의 "Java·FastAPI 인증 방식 보류" 문장을 신규 계약 문서 `.docs/SPRING_INTEGRATION.md` 참조로 갱신(FastAPI→Spring 조회 API 계약) |
 | 2026-07-23 | 승인된 Spring 챗봇 문서 경로를 교차 참조하고, Spring 소유 영속화·요청 이력 전달 계약은 후속 구현임을 명시. 단일 Spring→FastAPI POST의 동일 SSE 응답에서 반복 delta를 전송하고 Spring이 기존 WebSocket으로 릴레이하는 흐름(Delta별 HTTP 재요청 없음)을 명확화 |
+| 2026-07-25 | 프론트 요청(delta가 너무 큼)에 따라 `ChatbotService.chat()`이 delta를 어절 단위로 재분할하도록 변경. "📡 SSE 스트리밍 응답" 절의 노드별 delta 설명을 갱신 |
