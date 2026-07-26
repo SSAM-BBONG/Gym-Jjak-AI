@@ -205,7 +205,12 @@ async def rag_node(state: ChatState, config: RunnableConfig) -> dict:
     답변 텍스트는 stream_queue로 델타를 흘려보내며 생성한다."""
     deps = _deps(config)
     queue = _stream_queue(config)
-    documents = await deps.retriever.search(state["message"], category=None, keywords=[], top_k=3)
+    documents = await deps.retriever.search(
+        state["message"],
+        category="guide",
+        keywords=[],
+        top_k=3,
+    )
     prompt = build_rag_prompt(message=state["message"], documents=documents)
 
     response = None

@@ -41,14 +41,15 @@ async def test_search_results_always_have_source_title_category(tmp_path) -> Non
     assert all(r.source and r.title and r.category for r in results)
 
 
-async def test_category_filter_restricts_to_matching_category(tmp_path) -> None:
+async def test_category_filter_returns_guide_policy_document(tmp_path) -> None:
     embeddings = FakeEmbeddings()
     collection = await _seed_collection(tmp_path, embeddings)
     retriever = ChromaRetriever(collection, embeddings)
 
-    results = await retriever.search("환불", category="routine", keywords=[], top_k=5)
+    results = await retriever.search("환불", category="guide", keywords=[], top_k=5)
 
-    assert all(r.category == "routine" for r in results)
+    assert results
+    assert all(r.category == "guide" for r in results)
 
 
 async def test_keywords_are_folded_into_query_text_not_returned_to_caller(tmp_path) -> None:
