@@ -1,6 +1,8 @@
 ---
+id: injury-precautions-001
 title: 부상·통증 부위별 주의사항 및 대체운동 가이드
 category: injury_guide
+source: data/documents/pt_recommendation/injury-precautions.md
 keywords: [부상, 통증, 무릎, 허리, 어깨, 손목, 발목, 대체운동]
 status: sourced_confirmed_no_reviewer
 reviewed_by: null  # 팀 내 전문가 검수 인력 없음 — 공식 출처 인용 확인 후 자체 확정(2026-07-22)

@@ -30,6 +30,21 @@ def _load_cases() -> list[dict]:
         return [json.loads(line) for line in f if line.strip()]
 
 
+def test_service_policy_eval_cases_use_guide_category() -> None:
+    cases = _load_cases()
+    non_routine_cases = [
+        case
+        for case in cases
+        if any(
+            not document_id.startswith("routine-")
+            for document_id in case["expected_document_ids"]
+        )
+    ]
+
+    assert non_routine_cases
+    assert all(case["category"] == "guide" for case in non_routine_cases)
+
+
 @pytest.fixture
 async def retriever(tmp_path):
     from app.core.settings import get_settings

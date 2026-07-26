@@ -50,7 +50,7 @@ async def test_service_policy_question_uses_rag_and_returns_sources(graph, build
     builder.retriever.documents = [
         RetrievedDocument(
             document_id="policy-refund-001::0", content="환불은 7일 이내 가능합니다.",
-            score=0.9, source="data/documents/policy/refund.md", title="환불 정책", category="policy",
+            score=0.9, source="data/documents/policy/refund.md", title="환불 정책", category="guide",
         )
     ]
     builder.llm.response = LLMResponse(text="환불은 결제일로부터 7일 이내에 가능합니다.")
@@ -60,6 +60,8 @@ async def test_service_policy_question_uses_rag_and_returns_sources(graph, build
     assert result["route"] == "service_policy"
     assert result["answer"]
     assert result["sources"]
+    assert builder.retriever.queries[-1].category == "guide"
+    assert builder.retriever.queries[-1].top_k == 3
 
 
 async def test_inbody_question_uses_only_spring_tool_schemas(graph, builder) -> None:

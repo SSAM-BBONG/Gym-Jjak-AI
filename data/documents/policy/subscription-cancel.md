@@ -1,7 +1,7 @@
 ---
 id: policy-subscription-cancel-001
 title: 구독 해지 방법 안내
-category: policy
+category: guide
 source: data/documents/policy/subscription-cancel.md
 keywords: [구독 해지, 구독 취소, 마이페이지]
 ---
