@@ -1,7 +1,7 @@
 ---
 id: policy-pt-reservation-cancel-001
 title: PT 예약 취소 방법 안내
-category: policy
+category: guide
 source: data/documents/policy/pt-reservation-cancel.md
 keywords: [PT 예약 취소, 예약 변경, 트레이너]
 ---

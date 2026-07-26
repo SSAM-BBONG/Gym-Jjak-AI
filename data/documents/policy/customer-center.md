@@ -1,7 +1,7 @@
 ---
 id: policy-customer-center-001
 title: 고객센터 이용 안내
-category: policy
+category: guide
 source: data/documents/policy/customer-center.md
 keywords: [고객센터, 문의, 연락처]
 ---

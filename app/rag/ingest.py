@@ -34,7 +34,7 @@ from app.rag.vector_store import COLLECTION_NAME, create_chroma_client, get_or_c
 
 _REQUIRED_FRONTMATTER_FIELDS = ("id", "title", "category", "source", "keywords")
 _FRONTMATTER_PATTERN = re.compile(r"^---\n(.*?)\n---\n(.*)$", re.DOTALL)
-_CHUNK_CONFIG = "paragraph-v1"
+_CHUNK_CONFIG = "markdown-heading-v1"
 
 
 class ParsedDocument(BaseModel):
@@ -80,10 +80,91 @@ def _parse_document(path: Path) -> ParsedDocument:
     )
 
 
-def _chunk_text(body: str) -> list[str]:
-    """본문을 빈 줄 기준 문단 단위로 쪼갠다(paragraph-v1 청킹 전략)."""
-    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", body)]
-    return [p for p in paragraphs if p]
+def _split_to_limit(text: str, *, limit: int) -> list[str]:
+    paragraphs = [part.strip() for part in re.split(r"\n\s*\n", text) if part.strip()]
+    pieces: list[str] = []
+    for paragraph in paragraphs:
+        while len(paragraph) > limit:
+            pieces.append(paragraph[:limit])
+            paragraph = paragraph[limit:]
+        if paragraph:
+            pieces.append(paragraph)
+    return pieces
+
+
+def _with_breadcrumb(
+    *,
+    breadcrumb: str,
+    text: str,
+    max_chunk_size: int,
+    keep_short_text_together: bool = False,
+) -> list[str]:
+    separator = "\n\n"
+    body_limit = max_chunk_size - len(breadcrumb) - len(separator)
+    if body_limit < 1:
+        raise ValueError("breadcrumb exceeds max_chunk_size")
+    pieces = (
+        [text]
+        if keep_short_text_together and len(text) <= body_limit
+        else _split_to_limit(text, limit=body_limit)
+    )
+    return [f"{breadcrumb}{separator}{piece}" for piece in pieces]
+
+
+def _chunk_text(
+    body: str,
+    *,
+    title: str,
+    max_chunk_size: int = 500,
+) -> list[str]:
+    """Split Markdown into bounded chunks while retaining heading breadcrumbs."""
+    h1: str | None = None
+    h2: str | None = None
+    h2_body: list[str] = []
+    chunks: list[str] = []
+    found_h2 = False
+
+    def flush_h2() -> None:
+        if h2 is None:
+            return
+        text = "\n".join(h2_body).strip()
+        if not text:
+            return
+        parts = [title]
+        if h1:
+            parts.append(h1)
+        parts.append(h2)
+        chunks.extend(
+            _with_breadcrumb(
+                breadcrumb=" > ".join(parts),
+                text=text,
+                max_chunk_size=max_chunk_size,
+                keep_short_text_together=True,
+            )
+        )
+
+    for line in body.splitlines():
+        if line.startswith("## "):
+            flush_h2()
+            h2 = line.removeprefix("## ").strip()
+            h2_body = []
+            found_h2 = True
+        elif line.startswith("# "):
+            flush_h2()
+            h1 = line.removeprefix("# ").strip()
+            h2 = None
+            h2_body = []
+        elif h2 is not None:
+            h2_body.append(line)
+
+    flush_h2()
+    if found_h2:
+        return chunks
+    return _with_breadcrumb(
+        breadcrumb=title,
+        text=body,
+        max_chunk_size=max_chunk_size,
+    )
 
 
 def _compute_document_hash(
@@ -165,7 +246,7 @@ class Ingestor:
             if previous:
                 self._collection.delete(ids=previous["chunk_ids"])
 
-            chunks = _chunk_text(parsed.body)
+            chunks = _chunk_text(parsed.body, title=parsed.title)
             chunk_ids = [f"{parsed.id}::{i}" for i in range(len(chunks))]
             pending_ids.extend(chunk_ids)
             pending_texts.extend(chunks)
