@@ -3,9 +3,10 @@ JSON 블록으로 제공하고, 문서 안의 명령문을 시스템 지시로 �
 
 import json
 
-from app.common.models import OnboardingProfile
+from app.common.models import ChatbotOnboardingSnapshot, ChatbotWorkoutSummary, OnboardingProfile
 from app.rag.models import RetrievedDocument
 from app.routine.analyzer import InBodyTrend, WorkoutAnalysisResult
+from app.routine.schemas import TrainerRoutineProfile
 
 _SHARED_RULES = (
     "당신은 Gym-Jjak 피트니스 앱의 루틴 추천 도우미입니다. 다음 규칙을 반드시 지키세요.\n"
@@ -31,11 +32,18 @@ def _format_documents(documents: list[RetrievedDocument]) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
-def _format_onboarding(onboarding: OnboardingProfile | None) -> str:
+def _format_onboarding(onboarding: OnboardingProfile | ChatbotOnboardingSnapshot | None) -> str:
     """온보딩 프로필을 JSON 문자열로 직렬화한다. 없으면 안내 문구를 반환한다."""
     if onboarding is None:
         return "(온보딩 정보 없음)"
     return json.dumps(onboarding.model_dump(), ensure_ascii=False)
+
+
+def _format_workout_summary(workout_summary: ChatbotWorkoutSummary | None) -> str:
+    """Spring이 최신 30건 상세와 분리해 계산한 28일 운동 집계를 프롬프트에 넣는다."""
+    if workout_summary is None:
+        return "(28일 운동 요약 없음)"
+    return json.dumps(workout_summary.model_dump(mode="json"), ensure_ascii=False, indent=2)
 
 
 def _format_analysis(analysis: WorkoutAnalysisResult, inbody_trend: InBodyTrend) -> str:
@@ -66,6 +74,7 @@ def build_member_routine_prompt(
     inbody_trend: InBodyTrend,
     documents: list[RetrievedDocument],
     safety_caution: str | None,
+    workout_summary: ChatbotWorkoutSummary | None,
 ) -> str:
     """회원용 루틴 프롬프트를 조립한다."""
     caution_text = f"\n[안전 안내]\n{safety_caution}" if safety_caution else ""
@@ -74,6 +83,7 @@ def build_member_routine_prompt(
         f"[회원 요청]\n{message}\n\n"
         f"[온보딩 정보]\n{_format_onboarding(onboarding)}\n\n"
         f"[회원 실제 기록 - 결정론적 계산 결과]\n{_format_analysis(analysis, inbody_trend)}\n\n"
+        f"[회원 28일 운동 요약 - Spring 집계값]\n{_format_workout_summary(workout_summary)}\n\n"
         f"[참고 문서]\n{_format_documents(documents)}"
         f"{caution_text}"
     )
@@ -82,10 +92,11 @@ def build_member_routine_prompt(
 def build_trainer_routine_prompt(
     *,
     subject_user_id: int,
-    onboarding: OnboardingProfile | None,
+    profile: TrainerRoutineProfile,
     analysis: WorkoutAnalysisResult,
     inbody_trend: InBodyTrend,
     documents: list[RetrievedDocument],
+    workout_summary: ChatbotWorkoutSummary,
 ) -> str:
     """트레이너용 상세 루틴 프롬프트를 조립한다(회원용보다 분석 근거를 더 요구)."""
     return (
@@ -93,7 +104,9 @@ def build_trainer_routine_prompt(
         f"[트레이너용 상세 분석 요청]\n"
         f"담당 회원(user_id={subject_user_id})의 루틴을 회원용보다 더 상세한 분석 근거"
         f"(운동량 수치, 부위별 빈도, 인바디 추세, 구성 이유)와 함께 작성하세요.\n\n"
-        f"[온보딩 정보]\n{_format_onboarding(onboarding)}\n\n"
+        f"[트레이너 입력 프로필 - 저장하지 않는 일회성 정보]\n"
+        f"{json.dumps(profile.model_dump(mode='json'), ensure_ascii=False)}\n\n"
         f"[회원 실제 기록 - 결정론적 계산 결과]\n{_format_analysis(analysis, inbody_trend)}\n\n"
+        f"[회원 28일 운동 요약 - Spring 집계값]\n{_format_workout_summary(workout_summary)}\n\n"
         f"[참고 문서]\n{_format_documents(documents)}"
     )
