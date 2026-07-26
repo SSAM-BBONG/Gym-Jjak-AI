@@ -30,6 +30,46 @@ Read the customer-service instructions before requesting a refund.
     ]
 
 
+def test_chunk_text_flushes_previous_h2_before_a_new_h1() -> None:
+    body = """# Account
+
+## Billing
+
+Billing instructions.
+
+# Support
+
+## Contact
+
+Contact instructions.
+"""
+
+    chunks = _chunk_text(body, title="Help center")
+
+    assert chunks == [
+        "Help center > Account > Billing\n\nBilling instructions.",
+        "Help center > Support > Contact\n\nContact instructions.",
+    ]
+
+
+def test_chunk_text_keeps_short_h2_body_with_blank_paragraphs_in_one_chunk() -> None:
+    body = """# Account
+
+## Billing
+
+First billing paragraph.
+
+Second billing paragraph.
+"""
+
+    chunks = _chunk_text(body, title="Help center", max_chunk_size=500)
+
+    assert chunks == [
+        "Help center > Account > Billing\n\n"
+        "First billing paragraph.\n\nSecond billing paragraph."
+    ]
+
+
 def test_chunk_text_without_h2_uses_title_and_blank_paragraphs() -> None:
     body = "First legacy paragraph.\n\nSecond legacy paragraph."
 

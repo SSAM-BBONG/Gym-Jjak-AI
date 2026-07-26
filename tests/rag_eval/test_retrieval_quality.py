@@ -32,14 +32,17 @@ def _load_cases() -> list[dict]:
 
 def test_service_policy_eval_cases_use_guide_category() -> None:
     cases = _load_cases()
-    service_terms = ("환불", "결제", "구독", "예약", "고객센터", "이용")
-
-    matching_cases = [
-        case for case in cases if any(term in case["query"] for term in service_terms)
+    non_routine_cases = [
+        case
+        for case in cases
+        if any(
+            not document_id.startswith("routine-")
+            for document_id in case["expected_document_ids"]
+        )
     ]
 
-    assert matching_cases
-    assert all(case["category"] == "guide" for case in matching_cases)
+    assert non_routine_cases
+    assert all(case["category"] == "guide" for case in non_routine_cases)
 
 
 @pytest.fixture

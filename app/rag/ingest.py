@@ -80,12 +80,6 @@ def _parse_document(path: Path) -> ParsedDocument:
     )
 
 
-def _chunk_text_legacy(body: str) -> list[str]:
-    """본문을 빈 줄 기준 문단 단위로 쪼갠다(paragraph-v1 청킹 전략)."""
-    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", body)]
-    return [p for p in paragraphs if p]
-
-
 def _split_to_limit(text: str, *, limit: int) -> list[str]:
     paragraphs = [part.strip() for part in re.split(r"\n\s*\n", text) if part.strip()]
     pieces: list[str] = []
@@ -98,12 +92,23 @@ def _split_to_limit(text: str, *, limit: int) -> list[str]:
     return pieces
 
 
-def _with_breadcrumb(*, breadcrumb: str, text: str, max_chunk_size: int) -> list[str]:
+def _with_breadcrumb(
+    *,
+    breadcrumb: str,
+    text: str,
+    max_chunk_size: int,
+    keep_short_text_together: bool = False,
+) -> list[str]:
     separator = "\n\n"
     body_limit = max_chunk_size - len(breadcrumb) - len(separator)
     if body_limit < 1:
         raise ValueError("breadcrumb exceeds max_chunk_size")
-    return [f"{breadcrumb}{separator}{piece}" for piece in _split_to_limit(text, limit=body_limit)]
+    pieces = (
+        [text]
+        if keep_short_text_together and len(text) <= body_limit
+        else _split_to_limit(text, limit=body_limit)
+    )
+    return [f"{breadcrumb}{separator}{piece}" for piece in pieces]
 
 
 def _chunk_text(
@@ -134,6 +139,7 @@ def _chunk_text(
                 breadcrumb=" > ".join(parts),
                 text=text,
                 max_chunk_size=max_chunk_size,
+                keep_short_text_together=True,
             )
         )
 
@@ -144,7 +150,10 @@ def _chunk_text(
             h2_body = []
             found_h2 = True
         elif line.startswith("# "):
+            flush_h2()
             h1 = line.removeprefix("# ").strip()
+            h2 = None
+            h2_body = []
         elif h2 is not None:
             h2_body.append(line)
 
