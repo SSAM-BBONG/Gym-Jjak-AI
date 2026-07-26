@@ -1,6 +1,8 @@
 ---
+id: training-by-goal-001
 title: 운동 목표별 적합 트레이닝 방식 가이드
 category: training_guide
+source: data/documents/pt_recommendation/training-by-goal.md
 keywords: [근비대, 다이어트, 재활, 체력증진, 트레이닝목표, 운동부위]
 status: sourced_confirmed_no_reviewer
 last_updated: 2026-07-22

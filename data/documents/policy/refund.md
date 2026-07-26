@@ -1,7 +1,7 @@
 ---
 id: policy-refund-001
 title: 환불 정책 안내
-category: policy
+category: guide
 source: data/documents/policy/refund.md
 keywords: [환불, 환불 정책, 결제 취소]
 ---

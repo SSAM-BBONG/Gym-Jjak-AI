@@ -2,12 +2,36 @@ import shutil
 from pathlib import Path
 
 from app.core.settings import Settings
-from app.rag.ingest import Ingestor
+from app.rag.ingest import Ingestor, _parse_document
 from app.rag.vector_store import create_chroma_client, get_or_create_collection
 from tests.fakes.embeddings import FakeEmbeddings
 
 _FIXTURE = Path(__file__).resolve().parents[2] / "fixtures" / "rag" / "sample_routine.md"
 _POLICY_FIXTURE = Path(__file__).resolve().parents[2] / "fixtures" / "rag" / "sample_policy.md"
+
+
+def test_all_document_corpus_files_have_required_frontmatter_and_expected_categories() -> None:
+    documents_root = Path(__file__).resolve().parents[3] / "data" / "documents"
+    expected_guide_files = {
+        "policy/subscription-cancel.md",
+        "policy/refund.md",
+        "policy/pt-reservation-cancel.md",
+        "policy/customer-center.md",
+        "guide/짐짝_정책문서.md",
+    }
+
+    parsed_by_relative_path = {
+        path.relative_to(documents_root).as_posix(): _parse_document(path)
+        for path in sorted(documents_root.rglob("*.md"))
+    }
+
+    assert parsed_by_relative_path
+    assert all(parsed.id and parsed.source for parsed in parsed_by_relative_path.values())
+    assert {
+        relative_path
+        for relative_path, parsed in parsed_by_relative_path.items()
+        if parsed.category == "guide"
+    } >= expected_guide_files
 
 
 def _build_ingestor(tmp_path: Path, embeddings: FakeEmbeddings) -> Ingestor:
