@@ -163,6 +163,7 @@ class ChatbotService:
                 actor=request.actor,
                 message=request.message,
                 intent_hint=request.intent_hint,
+                personal_data=request.personal_data,
                 summary=request.memory.summary,
                 recent_messages=[
                     ChatMessage(

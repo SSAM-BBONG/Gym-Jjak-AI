@@ -19,6 +19,5 @@ async def trainer_routine_analysis(
     request: TrainerRoutineRequest,
     service: RoutineService = Depends(get_routine_service),
 ) -> RoutineResult:
-    """담당 회원(subject_user_id)에 대한 상세 루틴 분석. 담당 관계 검증 실패 시
-    RoutineService가 SubjectAccessDeniedError(403 TRAINER_SUBJECT_ACCESS_DENIED)를 던진다."""
-    return await service.recommend_for_trainer(actor=request.actor, subject_user_id=request.subject_user_id)
+    """Spring이 검증·조회한 수강생 스냅샷으로 상세 루틴을 생성한다."""
+    return await service.recommend_for_trainer(request=request)

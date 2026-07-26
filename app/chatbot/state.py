@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from app.chatbot.schemas import QuickReply
 from app.chatbot.tools import ToolResult
 from app.common.conversation import ChatMessage, ConversationContext
-from app.common.models import ActorContext
+from app.common.models import ActorContext, ChatbotPersonalData
 from app.llm.models import LLMMessage, ToolCall
 from app.routine.schemas import RoutineResult, SourceReference
 
@@ -29,6 +29,7 @@ class ChatState(TypedDict, total=False):
     actor: ActorContext
     message: str
     intent_hint: str | None
+    personal_data: ChatbotPersonalData | None
 
     summary: str | None
     recent_messages: list[ChatMessage]

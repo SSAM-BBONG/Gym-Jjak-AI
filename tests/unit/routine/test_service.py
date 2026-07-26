@@ -2,8 +2,17 @@ from datetime import date
 
 import pytest
 
-from app.common.exceptions import SubjectAccessDeniedError
-from app.common.models import ActorContext, OnboardingProfile, Role
+from app.common.models import (
+    ActorContext,
+    ChatbotOnboardingSnapshot,
+    ChatbotPersonalData,
+    ChatbotWorkoutSummary,
+    InBodyRecord,
+    OnboardingProfile,
+    Role,
+    WorkoutDiary,
+    WorkoutSet,
+)
 from app.rag.models import RetrievedDocument
 from app.routine.analyzer import WorkoutAnalyzer
 from app.routine.exceptions import ActorRoleNotAllowedError
@@ -12,6 +21,8 @@ from app.routine.schemas import (
     RoutineExercise,
     RoutineRequest,
     RoutineResult,
+    TrainerRoutineProfile,
+    TrainerRoutineRequest,
 )
 from app.routine.service import RoutineService
 from tests.fakes.llm import FakeLLMPort
@@ -33,6 +44,60 @@ def trainer_actor() -> ActorContext:
 
 def routine_request(message: str = "주 3회 전신 루틴 추천해줘") -> RoutineRequest:
     return RoutineRequest(message=message)
+
+
+def chatbot_personal_data() -> ChatbotPersonalData:
+    return ChatbotPersonalData(
+        onboarding=ChatbotOnboardingSnapshot(
+            exercise_goal="MUSCLE_GAIN",
+            exercise_period="OVER_6_MONTHS",
+            exercise_frequency="THREE_TO_FOUR",
+            preferred_exercise="WEIGHT_TRAINING",
+        ),
+        recent_workouts=[
+            WorkoutDiary(
+                diary_date=date.today(),
+                part="CHEST",
+                exercise="Bench Press",
+                sets=[WorkoutSet(set_number=1, weight=60, reps=10)],
+            )
+        ],
+        workout_summary=ChatbotWorkoutSummary(
+            period_days=28,
+            workout_days=3,
+            part_session_counts={"CHEST": 2, "BACK": 1},
+            part_total_volume_kg={"CHEST": 3600, "BACK": 1800},
+        ),
+        inbodies=[InBodyRecord(measured_at=date.today(), weight=70)],
+    )
+
+
+def trainer_routine_request(*, workouts=None) -> TrainerRoutineRequest:
+    recent_workouts = workouts if workouts is not None else [
+        workout_diary(
+            diary_date=date.today(),
+            part="CHEST",
+            exercise="벤치프레스",
+            sets=[workout_set(1, 40, 10)],
+        )
+    ]
+    return TrainerRoutineRequest(
+        subject_user_id=_MEMBER_ID,
+        profile=TrainerRoutineProfile(
+            gender="MALE",
+            age=28,
+            height_cm="175.5",
+            weight_kg="72.3",
+            goal="MUSCLE_GAIN",
+        ),
+        recent_workouts=recent_workouts,
+        workout_summary=ChatbotWorkoutSummary(
+            period_days=28,
+            workout_days=1 if recent_workouts else 0,
+            part_session_counts={"CHEST": 1} if recent_workouts else {},
+            part_total_volume_kg={"CHEST": 400} if recent_workouts else {},
+        ),
+    )
 
 
 def sample_routine_result(status: str = "COMPLETE") -> RoutineResult:
@@ -119,6 +184,20 @@ async def test_member_routine_uses_profile_workout_inbody_and_rag() -> None:
     assert not any(call[0] == "get_subscription_status" for call in user_data.calls)
 
 
+async def test_member_routine_uses_spring_personal_data_without_duplicate_lookup() -> None:
+    service, user_data, _, llm = build_routine_service()
+
+    result = await service.recommend_for_member(
+        actor=member_actor(),
+        request=RoutineRequest(message="주 3회 루틴 추천해줘", personal_data=chatbot_personal_data()),
+    )
+
+    assert result.status == "COMPLETE"
+    assert user_data.calls == []
+    assert '"workout_days": 3' in llm.structured_prompts[-1]
+    assert '"exercise_frequency": "THREE_TO_FOUR"' in llm.structured_prompts[-1]
+
+
 async def test_missing_workout_and_inbody_returns_limited_result() -> None:
     service, _, _, _ = build_routine_service(with_workouts=False, with_inbody=False)
 
@@ -146,28 +225,20 @@ async def test_trainer_role_cannot_use_member_path() -> None:
         await service.recommend_for_member(actor=trainer_actor(), request=routine_request())
 
 
-async def test_trainer_routine_checks_relationship_before_anything_else() -> None:
-    service, user_data, _, llm = build_routine_service(trainer_access=set())
-
-    with pytest.raises(SubjectAccessDeniedError):
-        await service.recommend_for_trainer(actor=trainer_actor(), subject_user_id=_MEMBER_ID)
-
-    assert llm.structured_call_count == 0
-
-
-async def test_trainer_routine_does_not_query_payment() -> None:
+async def test_trainer_routine_uses_only_supplied_snapshot() -> None:
     service, user_data, _, llm = build_routine_service()
 
-    result = await service.recommend_for_trainer(actor=trainer_actor(), subject_user_id=_MEMBER_ID)
+    result = await service.recommend_for_trainer(request=trainer_routine_request())
 
     assert result.status == "COMPLETE"
-    assert not any(call[0] == "get_payment_history" for call in user_data.calls)
+    assert llm.structured_call_count == 1
+    assert user_data.calls == []
 
 
 async def test_trainer_prompt_is_more_detailed_than_member_prompt() -> None:
     service, _, _, llm = build_routine_service()
 
-    await service.recommend_for_trainer(actor=trainer_actor(), subject_user_id=_MEMBER_ID)
+    await service.recommend_for_trainer(request=trainer_routine_request())
     trainer_prompt = llm.structured_prompts[-1]
 
     llm.structured_prompts.clear()
@@ -178,8 +249,10 @@ async def test_trainer_prompt_is_more_detailed_than_member_prompt() -> None:
     assert "트레이너용 상세 분석" not in member_prompt
 
 
-async def test_member_with_only_user_role_cannot_use_trainer_path() -> None:
+async def test_trainer_routine_without_workouts_returns_limited_result() -> None:
     service, _, _, _ = build_routine_service()
 
-    with pytest.raises(ActorRoleNotAllowedError):
-        await service.recommend_for_trainer(actor=member_actor(), subject_user_id=_MEMBER_ID)
+    result = await service.recommend_for_trainer(request=trainer_routine_request(workouts=[]))
+
+    assert result.status == "LIMITED"
+    assert result.missing_data == ["workout_diaries"]

@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import AliasChoices, BaseModel, Field
 
-from app.common.models import ActorContext
+from app.common.models import ActorContext, ChatbotPersonalData
 from app.routine.schemas import RoutineResult, SourceReference
 
 
@@ -52,6 +52,7 @@ class ChatRequest(BaseModel):
     intent_hint: str | None = None
     actor: ActorContext
     memory: ChatMemory = Field(default_factory=ChatMemory)
+    personal_data: ChatbotPersonalData | None = None
 
 
 class ChatResponse(BaseModel):
