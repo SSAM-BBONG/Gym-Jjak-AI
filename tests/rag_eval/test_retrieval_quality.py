@@ -30,6 +30,18 @@ def _load_cases() -> list[dict]:
         return [json.loads(line) for line in f if line.strip()]
 
 
+def test_service_policy_eval_cases_use_guide_category() -> None:
+    cases = _load_cases()
+    service_terms = ("환불", "결제", "구독", "예약", "고객센터", "이용")
+
+    matching_cases = [
+        case for case in cases if any(term in case["query"] for term in service_terms)
+    ]
+
+    assert matching_cases
+    assert all(case["category"] == "guide" for case in matching_cases)
+
+
 @pytest.fixture
 async def retriever(tmp_path):
     from app.core.settings import get_settings

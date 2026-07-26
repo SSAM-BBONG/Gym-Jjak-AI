@@ -10,11 +10,11 @@
 {"query": "스쿼트 위주로 초보자 하체 운동 짜줘", "expected_document_ids": ["routine-beginner-lowerbody-001"], "category": "routine"}
 {"query": "헬스장 안 가고 집에서 기구 없이 운동하고 싶어", "expected_document_ids": ["routine-home-noequipment-001"], "category": "routine"}
 {"query": "맨몸 운동만으로 홈트레이닝 루틴 알려줘", "expected_document_ids": ["routine-home-noequipment-001"], "category": "routine"}
-{"query": "환불 언제까지 가능해?", "expected_document_ids": ["policy-refund-001"], "category": "policy"}
-{"query": "결제 취소하고 환불받고 싶은데 정책이 어떻게 돼?", "expected_document_ids": ["policy-refund-001"], "category": "policy"}
-{"query": "구독 해지는 어디서 해?", "expected_document_ids": ["policy-subscription-cancel-001"], "category": "policy"}
-{"query": "구독 취소 방법 알려줘", "expected_document_ids": ["policy-subscription-cancel-001"], "category": "policy"}
-{"query": "고객센터 운영시간이 어떻게 돼?", "expected_document_ids": ["policy-customer-center-001"], "category": "policy"}
-{"query": "문의는 어디로 연락하면 돼?", "expected_document_ids": ["policy-customer-center-001"], "category": "policy"}
-{"query": "PT 예약 취소하고 싶은데 어떻게 해?", "expected_document_ids": ["policy-pt-reservation-cancel-001"], "category": "policy"}
-{"query": "트레이너 예약 변경하려면 언제까지 취소해야 위약금이 없어?", "expected_document_ids": ["policy-pt-reservation-cancel-001"], "category": "policy"}
+{"query": "환불 언제까지 가능해?", "expected_document_ids": ["policy-refund-001"], "category": "guide"}
+{"query": "결제 취소하고 환불받고 싶은데 정책이 어떻게 돼?", "expected_document_ids": ["policy-refund-001"], "category": "guide"}
+{"query": "구독 해지는 어디서 해?", "expected_document_ids": ["policy-subscription-cancel-001"], "category": "guide"}
+{"query": "구독 취소 방법 알려줘", "expected_document_ids": ["policy-subscription-cancel-001"], "category": "guide"}
+{"query": "고객센터 운영시간이 어떻게 돼?", "expected_document_ids": ["policy-customer-center-001"], "category": "guide"}
+{"query": "문의는 어디로 연락하면 돼?", "expected_document_ids": ["policy-customer-center-001"], "category": "guide"}
+{"query": "PT 예약 취소하고 싶은데 어떻게 해?", "expected_document_ids": ["policy-pt-reservation-cancel-001"], "category": "guide"}
+{"query": "트레이너 예약 변경하려면 언제까지 취소해야 위약금이 없어?", "expected_document_ids": ["policy-pt-reservation-cancel-001"], "category": "guide"}
