@@ -1,5 +1,5 @@
-"""분류·조회·답변·루틴 노드. 의존성(llm/retriever/user_data/routine_service/
-conversation_provider)과 이번 요청 전용 ToolRegistry는 그래프를 실행할 때
+"""분류·조회·답변·루틴 노드. 의존성(llm/retriever/user_data/routine_service)와
+이번 요청 전용 ToolRegistry는 그래프를 실행할 때
 config["configurable"]로 주입받는다 — 그래프 자체는 어떤 구현체인지 모른다."""
 
 import asyncio
@@ -15,13 +15,20 @@ from app.chatbot.prompts import (
     build_intent_classification_prompt,
     build_rag_prompt,
 )
+from app.chatbot.interactions import (
+    GREETING_MESSAGE,
+    greeting_replies,
+    next_routine_replies,
+    parse_routine_preference,
+    question_text,
+)
 from app.chatbot.tools import (
     DuplicateToolCallError,
     ToolArgumentValidationError,
     ToolCallLimitExceededError,
     ToolRegistry,
 )
-from app.common.conversation import ChatMessage, ConversationProvider
+from app.common.conversation import ChatMessage
 from app.common.models import Role
 from app.common.user_data_client import UserDataClient
 from app.core.settings import get_settings
@@ -33,6 +40,7 @@ from app.routine.service import RoutineService
 
 _ROUTINE_HINT = "ROUTINE_RECOMMENDATION"
 
+_GREETING_KEYWORDS = ("안녕", "안녕하세요", "반가워", "하이")
 _ROUTINE_KEYWORDS = ("루틴", "운동 추천", "운동 루틴")
 _PERSONAL_KEYWORDS = (
     "결제", "구독", "인바디", "운동일지", "온보딩", "이용권", "pt", "PT", "포인트",
@@ -51,7 +59,6 @@ class ChatbotDeps:
     retriever: RetrieverPort
     user_data: UserDataClient
     routine_service: RoutineService
-    conversation_provider: ConversationProvider
 
 
 def _deps(config: RunnableConfig) -> ChatbotDeps:
@@ -85,6 +92,9 @@ async def intent_router(state: ChatState, config: RunnableConfig) -> dict:
         return {"intent": "routine", "route": "routine"}
 
     message = state["message"]
+    normalized_message = message.strip().lower()
+    if any(keyword in normalized_message for keyword in _GREETING_KEYWORDS):
+        return {"intent": "greeting", "route": "greeting"}
     if any(k in message for k in _REJECT_KEYWORDS):
         return {"intent": "reject", "route": "reject"}
     if any(k in message for k in _ROUTINE_KEYWORDS):
@@ -220,15 +230,44 @@ async def routine_node(state: ChatState, config: RunnableConfig) -> dict:
     LLM 구조화 출력은 전부 그 서비스 책임이다. 실시간 토큰 스트리밍은 없지만, delta 이벤트가
     항상 한 번은 나가도록 완성된 요약을 단일 델타로 stream_queue에 흘려보낸다."""
     deps = _deps(config)
+    preference = parse_routine_preference(state.get("contexts") or [])
+    replies = next_routine_replies(preference)
+
+    if preference.has_selected_value() and replies:
+        answer = question_text(replies)
+        await _stream_queue(config).put(answer)
+        return {
+            "answer": answer,
+            "quick_replies": replies,
+            "sources": [],
+        }
+
     result = await deps.routine_service.recommend_for_member(
-        actor=state["actor"], request=RoutineRequest(message=state["message"])
+        actor=state["actor"],
+        # The snapshot is request-scoped and has already been authorized and assembled by Spring.
+        request=RoutineRequest(
+            message=state["message"],
+            personal_data=state.get("personal_data"),
+        ),
     )
-    await _stream_queue(config).put(result.summary)
+    answer = result.summary if not replies else f"{result.summary}\n\n{question_text(replies)}"
+    await _stream_queue(config).put(answer)
     return {
         "routine_result": result,
-        "answer": result.summary,
+        "answer": answer,
+        "quick_replies": replies,
         "sources": result.sources,
         "llm_call_count": state.get("llm_call_count", 0) + 1,
+    }
+
+
+async def greeting_node(state: ChatState, config: RunnableConfig) -> dict:
+    """인사말은 LLM 분류·RAG 없이 고정 안내와 기능 선택지를 반환한다."""
+    await _stream_queue(config).put(GREETING_MESSAGE)
+    return {
+        "answer": GREETING_MESSAGE,
+        "quick_replies": greeting_replies(),
+        "sources": [],
     }
 
 
@@ -248,25 +287,5 @@ async def format_node(state: ChatState, config: RunnableConfig) -> dict:
     return {
         "answer": state.get("answer") or _FALLBACK_ANSWER,
         "sources": state.get("sources") or [],
+        "quick_replies": state.get("quick_replies") or [],
     }
-
-
-async def persist_node(state: ChatState, config: RunnableConfig) -> dict:
-    """접근 검증을 통과한 user 메시지는 항상 저장한다. assistant 메시지는 성공한
-    답변(error_code 없음)만 저장하고, LLM 실패 안내는 정상 assistant 메시지로 남기지 않는다."""
-    if state.get("error_code"):
-        return {}
-
-    deps = _deps(config)
-    session_id = state["session_id"]
-    user_id = state["actor"].user_id
-
-    await deps.conversation_provider.append_message(
-        ChatMessage(session_id=session_id, user_id=user_id, role="user", content=state["message"])
-    )
-    answer = state.get("answer")
-    if answer:
-        await deps.conversation_provider.append_message(
-            ChatMessage(session_id=session_id, user_id=user_id, role="assistant", content=answer)
-        )
-    return {}

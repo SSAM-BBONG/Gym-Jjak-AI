@@ -1,13 +1,49 @@
 """계획서 Task 11의 대표 시나리오 10개."""
 
+from datetime import date
+
 from app.chatbot.prompts import REJECT_MESSAGE
 from app.chatbot.state import IntentClassification
-from app.common.models import ActorContext, Role, SubscriptionStatus
+from app.common.conversation import ConversationContext
+from app.common.models import (
+    ActorContext,
+    ChatbotOnboardingSnapshot,
+    ChatbotPersonalData,
+    ChatbotWorkoutSummary,
+    Role,
+    WorkoutDiary,
+    WorkoutSet,
+)
 from app.llm.errors import LLMNetworkError
 from app.llm.models import LLMResponse, ToolCall
 from app.rag.models import RetrievedDocument
 
 from .conftest import chat_state, member_actor, sample_routine_result
+
+
+def chatbot_personal_data() -> ChatbotPersonalData:
+    return ChatbotPersonalData(
+        onboarding=ChatbotOnboardingSnapshot(
+            exercise_goal="MUSCLE_GAIN",
+            exercise_period="OVER_6_MONTHS",
+            exercise_frequency="THREE_TO_FOUR",
+            preferred_exercise="WEIGHT_TRAINING",
+        ),
+        recent_workouts=[
+            WorkoutDiary(
+                diary_date=date.today(),
+                part="CHEST",
+                exercise="Bench Press",
+                sets=[WorkoutSet(set_number=1, weight=60, reps=10)],
+            )
+        ],
+        workout_summary=ChatbotWorkoutSummary(
+            period_days=28,
+            workout_days=3,
+            part_session_counts={"CHEST": 2, "BACK": 1},
+            part_total_volume_kg={"CHEST": 3600, "BACK": 1800},
+        ),
+    )
 
 
 async def test_service_policy_question_uses_rag_and_returns_sources(graph, builder) -> None:
@@ -56,6 +92,18 @@ async def test_routine_button_bypasses_intent_llm(graph, builder) -> None:
     assert result["llm_call_count"] == 1
 
 
+async def test_chatbot_routine_passes_spring_personal_data_to_routine_service(graph, builder) -> None:
+    builder.llm.structured_response = sample_routine_result()
+    state = chat_state(intent_hint="ROUTINE_RECOMMENDATION")
+    state["personal_data"] = chatbot_personal_data()
+
+    result = await graph.ainvoke(state, config=builder.config())
+
+    assert result["routine_result"] is not None
+    assert builder.user_data.calls == []
+    assert '"workout_days": 3' in builder.llm.structured_prompts[-1]
+
+
 async def test_natural_language_routine_request_uses_same_service(graph, builder) -> None:
     builder.llm.structured_response = sample_routine_result()
 
@@ -63,6 +111,45 @@ async def test_natural_language_routine_request_uses_same_service(graph, builder
 
     assert result["route"] == "routine"
     assert result["routine_result"] is not None
+
+
+async def test_greeting_returns_actions_without_llm_or_rag(graph, builder) -> None:
+    builder.llm.structured_response = IntentClassification(intent="reject")
+
+    result = await graph.ainvoke(chat_state(message="안녕"), config=builder.config())
+
+    assert result["route"] == "greeting"
+    assert result.get("quick_replies") is not None
+    assert builder.llm.structured_call_count == 0
+    assert builder.retriever.queries == []
+
+
+async def test_initial_routine_returns_detail_and_goal_quick_replies(graph, builder) -> None:
+    builder.llm.structured_response = sample_routine_result()
+
+    result = await graph.ainvoke(
+        chat_state(message="루틴 추천", intent_hint="ROUTINE_RECOMMENDATION"), config=builder.config()
+    )
+
+    assert result["routine_result"].days
+    assert result.get("quick_replies") is not None
+
+
+async def test_goal_context_returns_days_question_without_llm(graph, builder) -> None:
+    state = chat_state(intent_hint="ROUTINE_RECOMMENDATION")
+    state["contexts"] = [ConversationContext(
+        session_id="session-1",
+        user_id=10,
+        kind="ROUTINE_PREFERENCE",
+        value='{"goal":"MUSCLE_GAIN"}',
+        expires_at=None,
+    )]
+
+    result = await graph.ainvoke(state, config=builder.config())
+
+    assert result.get("routine_result") is None
+    assert result["quick_replies"][0].question_id == "ROUTINE_DAYS_PER_WEEK"
+    assert builder.llm.structured_call_count == 0
 
 
 async def test_unrelated_question_is_politely_rejected(graph, builder) -> None:
@@ -107,16 +194,6 @@ async def test_medical_question_gets_general_info_and_expert_referral(graph, bui
 
     assert "전문가" in result["answer"]
     assert result["tool_call_count"] == 0
-
-
-async def test_access_guard_does_not_requery_subscription(graph, builder) -> None:
-    builder.user_data._subscriptions[10] = SubscriptionStatus(is_active=False)
-    builder.llm.response = LLMResponse(text="인바디 정보를 안내드립니다.")
-
-    result = await graph.ainvoke(chat_state(message="인바디 알려줘"), config=builder.config())
-
-    assert result["answer"] == "인바디 정보를 안내드립니다."
-    assert ("get_subscription_status", 10) not in builder.user_data.calls
 
 
 async def test_llm_error_propagates_without_retry(graph, builder) -> None:

@@ -10,6 +10,7 @@ error 이벤트로 통일한다 — 스트림은 이미 200으로 시작했으�
 import asyncio
 import json
 import logging
+import re
 from typing import AsyncIterator
 
 import httpx
@@ -20,21 +21,22 @@ from app.chatbot.schemas import ChatRequest, ChatResponse
 from app.chatbot.spring_tool_client import ChatbotToolContext, SpringChatbotToolClient
 from app.chatbot.state import ChatState
 from app.chatbot.tools import ToolRegistry
+from app.common.conversation import ChatMessage, ConversationContext
 from app.core.exceptions import AppError
 from app.core.logging import get_request_id
 from app.core.settings import get_settings
 from app.llm.errors import LLMError
-from app.routine.exceptions import ActorRoleNotAllowedError, SubscriptionRequiredError
+from app.routine.exceptions import ActorRoleNotAllowedError
 
 logger = logging.getLogger(__name__)
 
 _ERROR_CODE_TO_EXCEPTION = {
     "ROLE_NOT_ALLOWED": ActorRoleNotAllowedError,
-    "CHATBOT_SUBSCRIPTION_REQUIRED": SubscriptionRequiredError,
     "LLM_CALL_LIMIT_EXCEEDED": LLMCallLimitExceededError,
 }
 
 _CATEGORY_BY_ROUTE = {
+    "greeting": "GREETING",
     "routine": "ROUTINE",
     "personal": "PERSONAL",
     "service_policy": "SERVICE_POLICY",
@@ -47,6 +49,25 @@ _LLM_ERROR_RETRYABLE = {
     "LLM_RATE_LIMITED": True,
     "LLM_INVALID_RESPONSE": False,
 }
+
+
+# 선행 공백까지 포함해 매칭해야 어절 사이 공백이 유실되지 않는다.
+_WORD_PATTERN = re.compile(r"\s*\S+\s*")
+
+
+def _split_ready_words(buffer: str) -> tuple[list[str], str]:
+    """누적 버퍼를 어절 단위로 쪼개 (즉시 내보낼 어절, 남길 버퍼)를 반환한다.
+
+    LLM 스트리밍 청크는 어절 중간에서 끊길 수 있으므로(예: "운동" + "을 하고"),
+    공백으로 끝나지 않는 마지막 조각은 미완성 어절로 보고 다음 청크와 이어붙이도록
+    남긴다. 반환값을 이어붙이면 항상 입력 buffer와 정확히 같다 — delta를 전부
+    합치면 원본 답변이 되어야 하는 계약을 이 함수가 지킨다."""
+    words = [m.group() for m in _WORD_PATTERN.finditer(buffer)]
+    if not words:
+        return [], buffer
+    if not words[-1][-1].isspace():
+        return words[:-1], words[-1]
+    return words, ""
 
 
 def _sse_event(event: str, data: dict) -> str:
@@ -136,25 +157,32 @@ class ChatbotService:
         request_id = get_request_id()
 
         try:
-            summary = await self._deps.conversation_provider.load_summary(
-                request.session_id, request.actor.user_id
-            )
-            recent_messages = await self._deps.conversation_provider.load_recent_messages(
-                request.session_id, request.actor.user_id
-            )
-            contexts = await self._deps.conversation_provider.load_context(
-                request.session_id, request.actor.user_id
-            )
-
             initial_state = ChatState(
                 request_id=request_id,
                 session_id=request.session_id,
                 actor=request.actor,
                 message=request.message,
                 intent_hint=request.intent_hint,
-                summary=summary,
-                recent_messages=recent_messages,
-                contexts=contexts,
+                personal_data=request.personal_data,
+                summary=request.memory.summary,
+                recent_messages=[
+                    ChatMessage(
+                        session_id=request.session_id,
+                        user_id=request.actor.user_id,
+                        role=message.role,
+                        content=message.content,
+                    )
+                    for message in request.memory.recent_messages
+                ],
+                contexts=[
+                    ConversationContext(
+                        session_id=request.session_id,
+                        user_id=request.actor.user_id,
+                        kind=context.kind,
+                        value=context.value,
+                    )
+                    for context in request.memory.contexts
+                ],
                 llm_call_count=0,
                 tool_call_count=0,
             )
@@ -191,13 +219,22 @@ class ChatbotService:
             }
             task = asyncio.create_task(self._run_graph_and_signal(initial_state, config, queue))
             done_signal: _StreamDone | None = None
+            # 노드는 LLM 청크나 완성된 문구를 그대로 큐에 넣는다. 프론트가 타이핑 효과를
+            # 적용할 수 있도록 잘게 쪼개는 책임은 여기(소비 측)에만 둔다.
+            pending_text = ""
             try:
                 while done_signal is None:
                     item = await queue.get()
                     if isinstance(item, _StreamDone):
                         done_signal = item
                     else:
-                        yield _sse_event("delta", {"text": item})
+                        ready_words, pending_text = _split_ready_words(pending_text + item)
+                        for word in ready_words:
+                            yield _sse_event("delta", {"text": word})
+                # 마지막 어절은 뒤에 공백이 없어 보류되어 있으므로 반드시 flush한다.
+                # 에러로 끝난 경우에도 이미 생성된 텍스트는 그대로 내보낸다.
+                if pending_text:
+                    yield _sse_event("delta", {"text": pending_text})
             finally:
                 if not task.done():
                     task.cancel()
@@ -224,5 +261,6 @@ class ChatbotService:
             routine=routine_result,
             sources=result.get("sources") or [],
             limited=bool(routine_result and routine_result.status == "LIMITED"),
+            quick_replies=result.get("quick_replies") or [],
         )
         yield _sse_event("done", response.model_dump(mode="json"))

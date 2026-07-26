@@ -7,14 +7,6 @@ from app.common.dev_user_data import SAMPLE_TRAINER_ID, SAMPLE_USER_ID, LocalDev
 from app.common.exceptions import SubjectAccessDeniedError
 
 
-async def test_subscription_is_always_active() -> None:
-    client = LocalDevUserDataClient()
-
-    status = await client.get_subscription_status(SAMPLE_USER_ID)
-
-    assert status.is_active is True
-
-
 async def test_recent_workouts_are_within_default_four_weeks() -> None:
     client = LocalDevUserDataClient()
 

@@ -9,11 +9,10 @@ from app.chatbot.graph import build_chatbot_graph
 from app.chatbot.nodes import ChatbotDeps
 from app.chatbot.state import ChatState
 from app.chatbot.tools import ToolRegistry
-from app.common.models import ActorContext, OnboardingProfile, PtUsageSummary, Role, SubscriptionStatus
+from app.common.models import ActorContext, OnboardingProfile, PtUsageSummary, Role
 from app.routine.analyzer import WorkoutAnalyzer
 from app.routine.schemas import RoutineDay, RoutineExercise, RoutineResult
 from app.routine.service import RoutineService
-from tests.fakes.conversation import FakeConversationProvider
 from tests.fakes.llm import FakeLLMPort
 from tests.fakes.retriever import FakeRetriever
 from tests.fakes.user_data import FakeUserDataClient
@@ -87,14 +86,12 @@ class _Builder:
 
     def __init__(self) -> None:
         self.user_data = FakeUserDataClient(
-            subscriptions={MEMBER_ID: SubscriptionStatus(is_active=True)},
             onboarding_profiles={MEMBER_ID: OnboardingProfile(goal="다이어트")},
             pt_usages={MEMBER_ID: PtUsageSummary(total_sessions=10, used_sessions=3, remaining_sessions=7)},
         )
         self.retriever = FakeRetriever()
         self.llm = FakeLLMPort()
         self.tool_client = FakeSpringChatbotToolClient()
-        self.conversation = FakeConversationProvider()
         self.routine_service = RoutineService(
             user_data=self.user_data,
             analyzer=WorkoutAnalyzer(),
@@ -108,7 +105,6 @@ class _Builder:
             retriever=self.retriever,
             user_data=self.user_data,
             routine_service=self.routine_service,
-            conversation_provider=self.conversation,
         )
         registry = ToolRegistry(client=self.tool_client, call_limit=call_limit)
         return {

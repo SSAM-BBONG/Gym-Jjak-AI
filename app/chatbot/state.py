@@ -4,14 +4,15 @@ from typing import Literal, TypedDict
 
 from pydantic import BaseModel
 
+from app.chatbot.schemas import QuickReply
 from app.chatbot.tools import ToolResult
 from app.common.conversation import ChatMessage, ConversationContext
-from app.common.models import ActorContext
+from app.common.models import ActorContext, ChatbotPersonalData
 from app.llm.models import LLMMessage, ToolCall
 from app.routine.schemas import RoutineResult, SourceReference
 
-# personal: 개인 데이터 조회(Function Calling) / service_policy: RAG / routine: 루틴 추천 / reject: 거절
-ChatIntent = Literal["personal", "service_policy", "routine", "reject"]
+# greeting: 고정 인사 / personal: 개인 데이터 조회(Function Calling) / service_policy: RAG / routine: 루틴 추천 / reject: 거절
+ChatIntent = Literal["greeting", "personal", "service_policy", "routine", "reject"]
 
 
 class IntentClassification(BaseModel):
@@ -28,6 +29,7 @@ class ChatState(TypedDict, total=False):
     actor: ActorContext
     message: str
     intent_hint: str | None
+    personal_data: ChatbotPersonalData | None
 
     summary: str | None
     recent_messages: list[ChatMessage]
@@ -41,6 +43,7 @@ class ChatState(TypedDict, total=False):
     tool_results: list[ToolResult]
 
     routine_result: RoutineResult | None
+    quick_replies: list[QuickReply]
 
     answer: str | None
     sources: list[SourceReference]
