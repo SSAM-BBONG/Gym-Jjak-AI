@@ -2,12 +2,57 @@ import shutil
 from pathlib import Path
 
 from app.core.settings import Settings
-from app.rag.ingest import Ingestor, _parse_document
+from app.rag.ingest import Ingestor, _chunk_text, _parse_document
 from app.rag.vector_store import create_chroma_client, get_or_create_collection
 from tests.fakes.embeddings import FakeEmbeddings
 
 _FIXTURE = Path(__file__).resolve().parents[2] / "fixtures" / "rag" / "sample_routine.md"
 _POLICY_FIXTURE = Path(__file__).resolve().parents[2] / "fixtures" / "rag" / "sample_policy.md"
+
+
+def test_chunk_text_uses_h2_as_boundary_and_keeps_h1_as_breadcrumb() -> None:
+    body = """# Membership guide
+
+## Payment check
+
+Review payment details from the account page.
+
+## Refund guide
+
+Read the customer-service instructions before requesting a refund.
+"""
+
+    chunks = _chunk_text(body, title="Help center")
+
+    assert chunks == [
+        "Help center > Membership guide > Payment check\n\nReview payment details from the account page.",
+        "Help center > Membership guide > Refund guide\n\nRead the customer-service instructions before requesting a refund.",
+    ]
+
+
+def test_chunk_text_without_h2_uses_title_and_blank_paragraphs() -> None:
+    body = "First legacy paragraph.\n\nSecond legacy paragraph."
+
+    chunks = _chunk_text(body, title="Legacy policy")
+
+    assert chunks == [
+        "Legacy policy\n\nFirst legacy paragraph.",
+        "Legacy policy\n\nSecond legacy paragraph.",
+    ]
+
+
+def test_chunk_text_splits_long_h2_body_without_exceeding_limit() -> None:
+    body = "# Parent heading\n\n## Section heading\n\n" + ("x" * 700)
+
+    chunks = _chunk_text(body, title="Document title", max_chunk_size=500)
+
+    assert len(chunks) >= 2
+    assert all(
+        chunk.startswith("Document title > Parent heading > Section heading\n\n")
+        for chunk in chunks
+    )
+    assert all(len(chunk) <= 500 for chunk in chunks)
+    assert "".join(chunk.split("\n\n", 1)[1] for chunk in chunks) == "x" * 700
 
 
 def test_all_document_corpus_files_have_required_frontmatter_and_expected_categories() -> None:
@@ -83,6 +128,36 @@ async def test_changed_document_replaces_chunks_and_re_embeds(tmp_path) -> None:
 
     assert second.updated_chunks > 0
     assert second.added_chunks == 0
+    assert len(embeddings.document_calls) == 2
+
+
+async def test_changed_chunk_config_replaces_existing_document_chunks(tmp_path) -> None:
+    embeddings = FakeEmbeddings()
+    source = _copy_fixture(tmp_path)
+
+    first_ingestor = _build_ingestor(tmp_path, embeddings)
+    first = await first_ingestor.ingest([source])
+    settings = Settings(
+        _env_file=None,
+        gemini_api_key="test-key",
+        chroma_mode="persistent",
+        chroma_persist_directory=tmp_path / "chroma",
+    )
+    client = create_chroma_client(settings)
+    collection = get_or_create_collection(client)
+    changed_ingestor = Ingestor(
+        collection=collection,
+        embeddings=embeddings,
+        manifest_path=tmp_path / "manifest.json",
+        embedding_model=settings.gemini_embedding_model,
+        embedding_dimensions=settings.embedding_dimensions,
+        chunk_config="markdown-heading-v2-test",
+    )
+
+    second = await changed_ingestor.ingest([source])
+
+    assert first.added_chunks > 0
+    assert second.updated_chunks > 0
     assert len(embeddings.document_calls) == 2
 
 
