@@ -126,6 +126,18 @@ async def test_greeting_returns_actions_without_llm_or_rag(graph, builder) -> No
     assert builder.retriever.queries == []
 
 
+async def test_trainer_can_use_chatbot_after_spring_authorizes_access(graph, builder) -> None:
+    # Spring이 활성 트레이너 프로필을 검증한 뒤 전달한 요청은 FastAPI에서 역할로 다시 차단하지 않는다.
+    trainer = ActorContext(user_id=20, role=Role.TRAINER)
+
+    result = await graph.ainvoke(
+        chat_state(message="안녕", actor=trainer), config=builder.config()
+    )
+
+    assert result.get("error_code") is None
+    assert result["route"] == "greeting"
+
+
 async def test_initial_routine_returns_detail_and_goal_quick_replies(graph, builder) -> None:
     builder.llm.structured_response = sample_routine_result()
 

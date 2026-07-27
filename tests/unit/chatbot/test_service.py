@@ -184,18 +184,17 @@ async def test_chat_streams_routine_answer_as_word_deltas() -> None:
     assert done["quick_replies"][0]["question_id"] == "ROUTINE_GOAL"
 
 
-async def test_chat_emits_error_event_for_trainer_actor() -> None:
+async def test_chat_allows_trainer_actor_after_spring_authorizes_access() -> None:
     builder = _Builder()
     service = build_service(builder)
 
+    # Spring이 접근 권한을 검증한 트레이너 요청은 FastAPI SSE done 이벤트까지 진행한다.
     events = await _run(
         service, chat_request(actor=ActorContext(user_id=20, role=Role.TRAINER))
     )
 
-    assert len(events) == 1
-    event, data = events[0]
-    assert event == "error"
-    assert data["code"] == "ROLE_NOT_ALLOWED"
+    assert events[-1][0] == "done"
+    assert all(event != "error" for event, _ in events)
 
 
 async def test_chat_uses_spring_tool_for_function_calling(respx_mock) -> None:
