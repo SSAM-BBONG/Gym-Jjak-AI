@@ -1,7 +1,5 @@
 from datetime import date
 
-import pytest
-
 from app.common.models import (
     ActorContext,
     ChatbotOnboardingSnapshot,
@@ -15,7 +13,6 @@ from app.common.models import (
 )
 from app.rag.models import RetrievedDocument
 from app.routine.analyzer import WorkoutAnalyzer
-from app.routine.exceptions import ActorRoleNotAllowedError
 from app.routine.schemas import (
     RoutineDay,
     RoutineExercise,
@@ -218,11 +215,18 @@ async def test_high_risk_message_blocks_before_llm_call() -> None:
     assert llm.structured_call_count == 0
 
 
-async def test_trainer_role_cannot_use_member_path() -> None:
-    service, _, _, _ = build_routine_service()
+async def test_trainer_can_use_chatbot_routine_path_after_spring_authorizes_access() -> None:
+    service, user_data, _, llm = build_routine_service()
 
-    with pytest.raises(ActorRoleNotAllowedError):
-        await service.recommend_for_member(actor=trainer_actor(), request=routine_request())
+    # Spring이 접근 권한과 본인 데이터를 검증해 전달한 트레이너 요청은 루틴 생성까지 진행한다.
+    result = await service.recommend_for_member(
+        actor=trainer_actor(),
+        request=RoutineRequest(message="주 3회 전신 루틴 추천", personal_data=chatbot_personal_data()),
+    )
+
+    assert result.status == "COMPLETE"
+    assert user_data.calls == []
+    assert llm.structured_call_count == 1
 
 
 async def test_trainer_routine_uses_only_supplied_snapshot() -> None:
