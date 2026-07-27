@@ -29,7 +29,6 @@ from app.chatbot.tools import (
     ToolRegistry,
 )
 from app.common.conversation import ChatMessage
-from app.common.models import Role
 from app.common.user_data_client import UserDataClient
 from app.core.settings import get_settings
 from app.llm.models import LLMMessage
@@ -74,11 +73,8 @@ def _stream_queue(config: RunnableConfig) -> asyncio.Queue:
 
 
 async def access_guard(state: ChatState, config: RunnableConfig) -> dict:
-    """Spring이 선검증한 구독을 신뢰하고, FastAPI에서는 역할만 확인한다."""
-    actor = state["actor"]
-    if actor.role != Role.USER:
-        return {"error_code": "ROLE_NOT_ALLOWED"}
-
+    """Spring이 선검증한 챗봇 접근 권한을 신뢰하고 다음 노드로 진행한다."""
+    # 활성 구독권 또는 ACTIVE 트레이너 프로필 검증은 Spring이 담당하므로 FastAPI에서 역할로 재차 차단하지 않는다.
     return {}
 
 
