@@ -14,7 +14,6 @@ from app.common.models import (
     ChatbotWorkoutSummary,
     InBodyRecord,
     OnboardingProfile,
-    Role,
     WorkoutDiary,
 )
 from app.common.user_data_client import UserDataClient
@@ -22,7 +21,6 @@ from app.llm.port import LLMPort
 from app.rag.models import RetrievedDocument
 from app.rag.retriever import RetrieverPort
 from app.routine.analyzer import WorkoutAnalyzer, analyze_inbody_trend
-from app.routine.exceptions import ActorRoleNotAllowedError
 from app.routine.prompts import build_member_routine_prompt, build_trainer_routine_prompt
 from app.routine.safety import assess_safety
 from app.routine.schemas import RoutineRequest, RoutineResult, SourceReference, TrainerRoutineRequest
@@ -50,9 +48,7 @@ class RoutineService:
         self, *, actor: ActorContext, request: RoutineRequest
     ) -> RoutineResult:
         """회원용 루틴 추천. role/구독/안전 검사를 통과해야 LLM을 호출한다."""
-        if actor.role != Role.USER:
-            raise ActorRoleNotAllowedError()
-
+        # 활성 구독권 또는 ACTIVE 트레이너 프로필 검증은 Spring이 담당하므로 FastAPI에서 역할로 재차 차단하지 않는다.
         safety = assess_safety(request.message)
         if safety.status == "BLOCKED":
             return RoutineResult(
