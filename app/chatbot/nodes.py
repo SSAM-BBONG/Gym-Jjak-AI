@@ -21,6 +21,7 @@ from app.chatbot.interactions import (
     next_routine_replies,
     parse_routine_preference,
     question_text,
+    to_routine_selection,
 )
 from app.chatbot.tools import (
     DuplicateToolCallError,
@@ -249,6 +250,7 @@ async def routine_node(state: ChatState, config: RunnableConfig) -> dict:
         request=RoutineRequest(
             message=state["message"],
             personal_data=state.get("personal_data"),
+            selection=to_routine_selection(preference),
         ),
     )
     answer = result.summary if not replies else f"{result.summary}\n\n{question_text(replies)}"

@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.chatbot.schemas import QuickReply
 from app.common.conversation import ConversationContext
+from app.routine.schemas import RoutineSelection
 
 GREETING_MESSAGE = (
     "안녕하세요. 짐짝 AI입니다. 궁금한 내용을 선택해 주세요."
@@ -75,6 +76,22 @@ def next_routine_replies(preference: RoutinePreference) -> list[QuickReply]:
     if preference.location is None:
         return list(_ROUTINE_LOCATION_REPLIES)
     return []
+
+
+def _label_of(replies: list[QuickReply], value: str | None) -> str | None:
+    """Spring이 저장한 선택 코드(예: TWO)를 회원이 본 라벨(주 2회)로 바꾼다. 모르는 코드는 버린다."""
+    return next((reply.label for reply in replies if reply.value == value), None)
+
+
+def to_routine_selection(preference: RoutinePreference) -> RoutineSelection | None:
+    """루틴 프롬프트에 넣을 선택 조건. 고른 값이 없으면 None."""
+    if not preference.has_selected_value():
+        return None
+    return RoutineSelection(
+        goal=_label_of(_ROUTINE_GOAL_REPLIES, preference.goal),
+        days_per_week=_label_of(_ROUTINE_DAYS_REPLIES, preference.days_per_week),
+        location=_label_of(_ROUTINE_LOCATION_REPLIES, preference.location),
+    )
 
 
 def question_text(replies: list[QuickReply]) -> str:

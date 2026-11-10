@@ -1,13 +1,16 @@
 import base64
 import asyncio
-from typing import AsyncIterator
+import logging
+from typing import AsyncIterator, Literal
 
 import httpx
+from langchain_core.callbacks import UsageMetadataCallbackHandler
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_google_genai.chat_models import ChatGoogleGenerativeAIError
 from pydantic import BaseModel, ValidationError
 
+from app.core.logging import get_request_id
 from app.core.settings import settings
 from app.llm.errors import LLMInvalidResponseError, LLMNetworkError, LLMRateLimitedError
 from app.llm.models import LLMMessage, LLMResponse, LLMStreamChunk, ToolCall
@@ -26,6 +29,32 @@ _ROLE_TO_MESSAGE_CLASS = {
 # 만들 때도 같은 키에서 서명을 읽어간다 — 그래서 우리도 왕복시킬 때 이 키를 그대로 써야 한다.
 # 주의: langchain-google-genai 버전이 올라가며 이 내부 키 이름이 바뀌면 이 상수도 갱신해야 한다.
 _THOUGHT_SIGNATURE_KEY = "__gemini_function_call_thought_signatures__"
+
+logger = logging.getLogger(__name__)
+
+ThinkingLevel = Literal["minimal", "low", "medium", "high"]
+
+
+def _log_token_usage(feature: str, method: str, handler: UsageMetadataCallbackHandler) -> None:
+    """호출 1회의 토큰 사용량을 남긴다. 무료 등급 한도 계산과 프롬프트 절감 효과 확인용.
+    reasoning_tokens는 Gemini 3 계열의 사고 토큰으로 output_tokens에 이미 포함된 값이다."""
+    usages = list(handler.usage_metadata.values())
+    if not usages:
+        return
+    input_tokens = sum(u.get("input_tokens", 0) for u in usages)
+    output_tokens = sum(u.get("output_tokens", 0) for u in usages)
+    reasoning_tokens = sum((u.get("output_token_details") or {}).get("reasoning", 0) for u in usages)
+    logger.info(
+        "llm_token_usage request_id=%s feature=%s method=%s input_tokens=%s output_tokens=%s "
+        "reasoning_tokens=%s total_tokens=%s",
+        get_request_id(),
+        feature,
+        method,
+        input_tokens,
+        output_tokens,
+        reasoning_tokens,
+        sum(u.get("total_tokens", 0) for u in usages),
+    )
 
 
 def _to_langchain_message(message: LLMMessage):
@@ -82,8 +111,18 @@ class GeminiAdapter:
     """LLMPort 구현체. Gemini 모델 1회 호출과 오류 변환만 담당한다.
     LangChain은 이 파일 안에서만 사용한다."""
 
-    def __init__(self, *, temperature: float = 0.1) -> None:
+    def __init__(
+        self,
+        *,
+        temperature: float = 0.1,
+        feature: str = "default",
+        thinking_level: ThinkingLevel | None = None,
+    ) -> None:
+        """feature는 토큰 사용 로그의 구분값이다. thinking_level은 Gemini 3 계열 전용이며,
+        None이면 모델 기본값을 그대로 쓴다."""
         self._temperature = temperature
+        self._feature = feature
+        self._thinking_level = thinking_level
         self._model: ChatGoogleGenerativeAI | None = None
 
     def _get_model(self) -> ChatGoogleGenerativeAI:
@@ -91,11 +130,13 @@ class GeminiAdapter:
             return self._model
         if not settings.gemini_api_key:
             raise RuntimeError("GEMINI_API_KEY 환경변수가 필요합니다.")
+        optional_kwargs = {"thinking_level": self._thinking_level} if self._thinking_level else {}
         self._model = ChatGoogleGenerativeAI(
             model=settings.gemini_model,
             google_api_key=settings.gemini_api_key,
             temperature=self._temperature,
             max_retries=0,
+            **optional_kwargs,
         )
         return self._model
 
@@ -223,15 +264,20 @@ class GeminiAdapter:
             schema=output_schema.model_json_schema(),
             method="json_schema",
         )
+        usage_handler = UsageMetadataCallbackHandler()
         try:
             result = await asyncio.wait_for(
-                structured_model.ainvoke([HumanMessage(content=prompt)]),
+                structured_model.ainvoke(
+                    [HumanMessage(content=prompt)],
+                    config={"callbacks": [usage_handler]},
+                ),
                 timeout=settings.gemini_timeout_seconds,
             )
         except (httpx.ConnectError, httpx.TimeoutException) as e:
             raise LLMNetworkError(str(e)) from e
         except ChatGoogleGenerativeAIError as e:
             _raise_for_gemini_error(e)
+        _log_token_usage(self._feature, "generate_structured", usage_handler)
 
         try:
             if isinstance(result, BaseModel):

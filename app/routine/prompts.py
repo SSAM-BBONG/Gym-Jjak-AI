@@ -6,7 +6,7 @@ import json
 from app.common.models import ChatbotOnboardingSnapshot, ChatbotWorkoutSummary, OnboardingProfile
 from app.rag.models import RetrievedDocument
 from app.routine.analyzer import InBodyTrend, WorkoutAnalysisResult
-from app.routine.schemas import TrainerRoutineProfile
+from app.routine.schemas import RoutineSelection, TrainerRoutineProfile
 
 _SHARED_RULES = (
     "당신은 Gym-Jjak 피트니스 앱의 루틴 추천 도우미입니다. 다음 규칙을 반드시 지키세요.\n"
@@ -32,7 +32,7 @@ def _format_documents(documents: list[RetrievedDocument]) -> str:
     if not documents:
         return "(참고할 문서를 찾지 못했습니다. 회원 기록과 일반 지식만으로 신중하게 답하세요.)"
     payload = [{"title": d.title, "category": d.category, "content": d.content} for d in documents]
-    return json.dumps(payload, ensure_ascii=False, indent=2)
+    return json.dumps(payload, ensure_ascii=False)
 
 
 def _format_onboarding(onboarding: OnboardingProfile | ChatbotOnboardingSnapshot | None) -> str:
@@ -46,18 +46,50 @@ def _format_workout_summary(workout_summary: ChatbotWorkoutSummary | None) -> st
     """Spring이 최신 30건 상세와 분리해 계산한 28일 운동 집계를 프롬프트에 넣는다."""
     if workout_summary is None:
         return "(28일 운동 요약 없음)"
-    return json.dumps(workout_summary.model_dump(mode="json"), ensure_ascii=False, indent=2)
+    return json.dumps(workout_summary.model_dump(mode="json"), ensure_ascii=False)
 
 
-def _format_analysis(analysis: WorkoutAnalysisResult, inbody_trend: InBodyTrend) -> str:
-    """WorkoutAnalyzer/analyze_inbody_trend 결과를 프롬프트에 넣을 JSON 문자열로 만든다."""
+def _format_selection(selection: RoutineSelection | None) -> str:
+    """버튼으로 고른 조건 블록. 고른 값이 없으면 블록 자체를 넣지 않는다."""
+    if selection is None:
+        return ""
+    lines = [
+        f"{label}: {value}"
+        for label, value in (
+            ("운동 목표", selection.goal),
+            ("주당 운동 횟수", selection.days_per_week),
+            ("운동 장소", selection.location),
+        )
+        if value
+    ]
+    if not lines:
+        return ""
+    return (
+        "[회원이 이번 대화에서 선택한 조건 - 온보딩 정보보다 우선]\n"
+        + "\n".join(lines)
+        + "\n(days 개수는 주당 운동 횟수와 같게 하고 '주 4회 이상'은 4일로 작성합니다. "
+        "운동 장소에서 할 수 있는 운동만 고릅니다.)\n\n"
+    )
+
+
+def _format_analysis(
+    analysis: WorkoutAnalysisResult,
+    inbody_trend: InBodyTrend,
+    *,
+    has_workout_summary: bool,
+) -> str:
+    """WorkoutAnalyzer/analyze_inbody_trend 결과를 프롬프트에 넣을 JSON 문자열로 만든다.
+    Spring 28일 요약이 있으면 볼륨·부위별 세션 수는 요약 블록만 사용한다 — 상세 기록은
+    최신 30건으로 잘려 있어 같은 지표가 다른 값으로 두 번 들어가는 것을 막기 위함이다."""
     weight_ranges = {
         name: (f"{r.min_weight}~{r.max_weight}kg" if r else "이력 부족(추측 금지, RPE/RIR로 안내)")
         for name, r in analysis.exercise_weight_ranges.items()
     }
-    payload = {
+    payload = {} if has_workout_summary else {
         "total_volume_recent_4weeks": str(analysis.total_volume),
         "part_session_counts_recent_4weeks": analysis.part_session_counts,
+    }
+    payload |= {
         "exercise_weight_ranges": weight_ranges,
         "inbody_weight_change": (
             str(inbody_trend.weight_change) if inbody_trend.weight_change is not None else "계산 불가(기록 부족)"
@@ -66,7 +98,7 @@ def _format_analysis(analysis: WorkoutAnalysisResult, inbody_trend: InBodyTrend)
             str(inbody_trend.body_fat_change) if inbody_trend.body_fat_change is not None else None
         ),
     }
-    return json.dumps(payload, ensure_ascii=False, indent=2)
+    return json.dumps(payload, ensure_ascii=False)
 
 
 def build_member_routine_prompt(
@@ -78,14 +110,19 @@ def build_member_routine_prompt(
     documents: list[RetrievedDocument],
     safety_caution: str | None,
     workout_summary: ChatbotWorkoutSummary | None,
+    selection: RoutineSelection | None = None,
 ) -> str:
     """회원용 루틴 프롬프트를 조립한다."""
     caution_text = f"\n[안전 안내]\n{safety_caution}" if safety_caution else ""
+    analysis_text = _format_analysis(
+        analysis, inbody_trend, has_workout_summary=workout_summary is not None
+    )
     return (
         f"{_SHARED_RULES}\n\n"
         f"[회원 요청]\n{message}\n\n"
+        f"{_format_selection(selection)}"
         f"[온보딩 정보]\n{_format_onboarding(onboarding)}\n\n"
-        f"[회원 실제 기록 - 결정론적 계산 결과]\n{_format_analysis(analysis, inbody_trend)}\n\n"
+        f"[회원 실제 기록 - 결정론적 계산 결과]\n{analysis_text}\n\n"
         f"[회원 28일 운동 요약 - Spring 집계값]\n{_format_workout_summary(workout_summary)}\n\n"
         f"[참고 문서]\n{_format_documents(documents)}"
         f"{caution_text}"
@@ -109,7 +146,8 @@ def build_trainer_routine_prompt(
         f"(운동량 수치, 부위별 빈도, 인바디 추세, 구성 이유)와 함께 작성하세요.\n\n"
         f"[트레이너 입력 프로필 - 저장하지 않는 일회성 정보]\n"
         f"{json.dumps(profile.model_dump(mode='json'), ensure_ascii=False)}\n\n"
-        f"[회원 실제 기록 - 결정론적 계산 결과]\n{_format_analysis(analysis, inbody_trend)}\n\n"
+        f"[회원 실제 기록 - 결정론적 계산 결과]\n"
+        f"{_format_analysis(analysis, inbody_trend, has_workout_summary=True)}\n\n"
         f"[회원 28일 운동 요약 - Spring 집계값]\n{_format_workout_summary(workout_summary)}\n\n"
         f"[참고 문서]\n{_format_documents(documents)}"
     )

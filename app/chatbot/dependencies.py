@@ -21,14 +21,23 @@ from app.routine.analyzer import WorkoutAnalyzer
 from app.routine.service import RoutineService
 
 
+# 루틴 구조화 출력은 사고 토큰이 출력의 약 1/3을 차지하고 20초 타임아웃에 걸리기도 해
+# 사고 수준을 낮춘다(Gemini 3 계열 전용 옵션).
+_ROUTINE_THINKING_LEVEL = "low"
+
+
 @lru_cache
 def get_chatbot_llm_client() -> LLMPort:
-    return GeminiAdapter(temperature=get_settings().chatbot_llm_temperature)
+    return GeminiAdapter(temperature=get_settings().chatbot_llm_temperature, feature="chatbot")
 
 
 @lru_cache
 def get_routine_llm_client() -> LLMPort:
-    return GeminiAdapter(temperature=get_settings().routine_llm_temperature)
+    return GeminiAdapter(
+        temperature=get_settings().routine_llm_temperature,
+        feature="routine",
+        thinking_level=_ROUTINE_THINKING_LEVEL,
+    )
 
 
 @lru_cache

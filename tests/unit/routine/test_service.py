@@ -18,6 +18,7 @@ from app.routine.schemas import (
     RoutineExercise,
     RoutineRequest,
     RoutineResult,
+    RoutineSelection,
     TrainerRoutineProfile,
     TrainerRoutineRequest,
 )
@@ -193,6 +194,58 @@ async def test_member_routine_uses_spring_personal_data_without_duplicate_lookup
     assert user_data.calls == []
     assert '"workout_days": 3' in llm.structured_prompts[-1]
     assert '"exercise_frequency": "THREE_TO_FOUR"' in llm.structured_prompts[-1]
+
+
+async def test_member_routine_puts_button_selection_in_prompt_and_rag_query() -> None:
+    service, _, retriever, llm = build_routine_service()
+
+    await service.recommend_for_member(
+        actor=member_actor(),
+        request=RoutineRequest(
+            message="헬스장",
+            personal_data=chatbot_personal_data(),
+            selection=RoutineSelection(goal="체지방 감량", days_per_week="주 2회", location="헬스장"),
+        ),
+    )
+
+    prompt = llm.structured_prompts[-1]
+    assert "[회원이 이번 대화에서 선택한 조건 - 온보딩 정보보다 우선]" in prompt
+    assert "주당 운동 횟수: 주 2회" in prompt
+    assert "운동 목표: 체지방 감량" in prompt
+    assert retriever.queries[0].keywords == ["체지방 감량", "주 2회", "헬스장"]
+
+
+async def test_member_routine_without_selection_has_no_selection_block() -> None:
+    service, _, retriever, llm = build_routine_service()
+
+    await service.recommend_for_member(actor=member_actor(), request=routine_request())
+
+    assert "선택한 조건" not in llm.structured_prompts[-1]
+    assert retriever.queries[0].keywords == []
+
+
+async def test_spring_summary_replaces_truncated_volume_and_session_counts() -> None:
+    # 상세 기록은 최신 30건으로 잘려 있으므로 28일 요약이 있으면 같은 지표를 두 번 넣지 않는다.
+    service, _, _, llm = build_routine_service()
+
+    await service.recommend_for_member(
+        actor=member_actor(),
+        request=RoutineRequest(message="루틴 추천", personal_data=chatbot_personal_data()),
+    )
+
+    prompt = llm.structured_prompts[-1]
+    assert "part_session_counts_recent_4weeks" not in prompt
+    assert "total_volume_recent_4weeks" not in prompt
+    assert '"part_session_counts": {"CHEST": 2, "BACK": 1}' in prompt
+    assert "exercise_weight_ranges" in prompt
+
+
+async def test_fallback_lookup_without_summary_keeps_analyzer_counts() -> None:
+    service, _, _, llm = build_routine_service()
+
+    await service.recommend_for_member(actor=member_actor(), request=routine_request())
+
+    assert "part_session_counts_recent_4weeks" in llm.structured_prompts[-1]
 
 
 async def test_missing_workout_and_inbody_returns_limited_result() -> None:

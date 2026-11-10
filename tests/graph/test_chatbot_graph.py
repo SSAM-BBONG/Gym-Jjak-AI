@@ -166,6 +166,34 @@ async def test_goal_context_returns_days_question_without_llm(graph, builder) ->
     assert builder.llm.structured_call_count == 0
 
 
+def _final_turn_state(days_per_week: str):
+    state = chat_state(message="헬스장", intent_hint="ROUTINE_RECOMMENDATION")
+    state["personal_data"] = chatbot_personal_data()
+    state["contexts"] = [ConversationContext(
+        session_id="session-1",
+        user_id=10,
+        kind="ROUTINE_PREFERENCE",
+        value=f'{{"goal":"FAT_LOSS","daysPerWeek":"{days_per_week}","location":"GYM"}}',
+        expires_at=None,
+    )]
+    return state
+
+
+async def test_final_routine_prompt_reflects_selected_days_per_week(graph, builder) -> None:
+    builder.llm.structured_response = sample_routine_result()
+
+    await graph.ainvoke(_final_turn_state("TWO"), config=builder.config())
+    two_days_prompt = builder.llm.structured_prompts[-1]
+    await graph.ainvoke(_final_turn_state("FOUR_PLUS"), config=builder.config())
+    four_plus_prompt = builder.llm.structured_prompts[-1]
+
+    assert "주당 운동 횟수: 주 2회" in two_days_prompt
+    assert "주당 운동 횟수: 주 4회 이상" in four_plus_prompt
+    assert "운동 목표: 체지방 감량" in two_days_prompt
+    assert "운동 장소: 헬스장" in two_days_prompt
+    assert two_days_prompt != four_plus_prompt
+
+
 async def test_unrelated_question_is_politely_rejected(graph, builder) -> None:
     builder.llm.structured_response = IntentClassification(intent="reject")
 

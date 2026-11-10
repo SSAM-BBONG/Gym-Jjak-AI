@@ -35,11 +35,20 @@ class SourceReference(BaseModel):
     category: str
 
 
+class RoutineSelection(BaseModel):
+    """챗봇 버튼으로 이번 대화에서 고른 조건. 값은 회원이 화면에서 본 한글 라벨이다."""
+
+    goal: str | None = None
+    days_per_week: str | None = None
+    location: str | None = None
+
+
 class RoutineRequest(BaseModel):
     """회원 루틴 추천 요청. 자유 텍스트 메시지 하나로 안전검사와 프롬프트에 모두 사용한다."""
 
     message: str
     personal_data: ChatbotPersonalData | None = None
+    selection: RoutineSelection | None = None
 
 
 class RoutineExercise(BaseModel):

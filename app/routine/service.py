@@ -69,8 +69,15 @@ class RoutineService:
         missing_data = self._missing_data(workouts, inbody)
         analysis = self._analyzer.analyze(workouts)
         inbody_trend = analyze_inbody_trend(inbody)
+        # 버튼 턴의 message는 마지막 라벨("헬스장")뿐이라, 고른 조건을 검색 힌트로 함께 쓴다.
+        selection = request.selection
+        selection_keywords = (
+            [v for v in (selection.goal, selection.days_per_week, selection.location) if v]
+            if selection
+            else []
+        )
         documents = await self._retriever.search(
-            request.message, category="routine", keywords=[], top_k=3
+            request.message, category="routine", keywords=selection_keywords, top_k=3
         )
 
         prompt = build_member_routine_prompt(
@@ -81,6 +88,7 @@ class RoutineService:
             documents=documents,
             safety_caution=safety.caution,
             workout_summary=workout_summary,
+            selection=selection,
         )
         result = await self._llm.generate_structured(prompt=prompt, output_schema=RoutineResult)
         return self._finalize(result, missing_data=missing_data, documents=documents, extra_caution=safety.caution)
